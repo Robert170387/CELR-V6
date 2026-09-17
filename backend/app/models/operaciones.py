@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Numeric, Boolean, Date, ForeignKey, Text, DateTime, CheckConstraint, text
+from sqlalchemy import Column, Integer, String, Numeric, Boolean, Date, ForeignKey, Text, DateTime, CheckConstraint, Computed
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from app.db.base_class import Base
@@ -39,12 +39,12 @@ class ViajeODT(Base):
     retefuente_valor = Column(Numeric(14,2))
     reteica_porcentaje = Column(Numeric(5,2))
     reteica_valor = Column(Numeric(14,2))
-    flete_neto = Column(Numeric(14,2), server_default=text("valor_flete_manifiesto - COALESCE(retefuente_valor, 0) - COALESCE(reteica_valor, 0)"), nullable=False)
+    flete_neto = Column(Numeric(14,2), Computed("valor_flete_manifiesto - COALESCE(retefuente_valor, 0) - COALESCE(reteica_valor, 0)", persisted=True))
     fecha_salida = Column(Date, nullable=False, index=True)
     fecha_llegada = Column(Date)
     km_inicial = Column(Numeric(12,2))
     km_final = Column(Numeric(12,2))
-    km_recorridos = Column(Numeric(12,2), server_default=text("km_final - km_inicial"), nullable=False)
+    km_recorridos = Column(Numeric(12,2), Computed("km_final - km_inicial", persisted=True))
     estado = Column(String(20), nullable=False, default='en_curso', index=True)
     observaciones = Column(Text)
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -71,7 +71,7 @@ class Gasto(Base):
     )
     
     id = Column(Integer, primary_key=True, index=True)
-    viaje_id = Column(Integer, ForeignKey("viajes_odt.id"), nullable=False, index=True)
+    viaje_id = Column(Integer, ForeignKey("viajes_odt.id"), nullable=True, index=True)
     vehiculo_id = Column(Integer, ForeignKey("vehiculos.id"), nullable=False, index=True)
     proveedor_id = Column(Integer, ForeignKey("proveedores.id"))
     categoria = Column(String(80), nullable=False, index=True)

@@ -182,8 +182,8 @@ class OCRService:
     def save_scan_result(
         self,
         file_bytes: bytes,
-        viaje_id: int,
         vehiculo_id: int,
+        viaje_id: Optional[int] = None,
         reportado_por: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Procesa el recibo y persiste el Gasto. Devuelve el resultado + gasto_id."""

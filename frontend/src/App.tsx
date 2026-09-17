@@ -7,6 +7,7 @@ import Viajes from '@/pages/Viajes'
 import Gastos from '@/pages/Gastos'
 import ScanReceipt from '@/pages/ScanReceipt'
 import Liquidaciones from '@/pages/Liquidaciones'
+import Ingresos from '@/pages/Ingresos'
 import Maestras from '@/pages/Maestras'
 import Layout from '@/components/Layout'
 import { puedeAccederModulo } from '@/utils/rbac'
@@ -51,6 +52,14 @@ const AppRoutes: React.FC = () => {
                   element={
                     <RequireRole path="/liquidaciones">
                       <Liquidaciones />
+                    </RequireRole>
+                  }
+                />
+                <Route
+                  path="/ingresos"
+                  element={
+                    <RequireRole path="/ingresos">
+                      <Ingresos />
                     </RequireRole>
                   }
                 />

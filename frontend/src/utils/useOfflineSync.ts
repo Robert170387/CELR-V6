@@ -1,20 +1,24 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getUnsyncedTransactions, syncPendingTransactions } from '@/utils/offlineStore'
+import { getUnsyncedTransactions, syncPendingTransactions, PendingTransaction } from '@/utils/offlineStore'
 
 interface UseOfflineSyncReturn {
   isOnline: boolean
   isSyncing: boolean
   pendingCount: number
+  pendientes: PendingTransaction[]
   sync: () => Promise<void>
+  refresh: () => Promise<void>
 }
 
 export function useOfflineSync(): UseOfflineSyncReturn {
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [isSyncing, setIsSyncing] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
+  const [pendientes, setPendientes] = useState<PendingTransaction[]>([])
 
-  const updatePendingCount = useCallback(async () => {
+  const refresh = useCallback(async () => {
     const unsynced = await getUnsyncedTransactions()
+    setPendientes(unsynced)
     setPendingCount(unsynced.length)
   }, [])
 
@@ -28,8 +32,9 @@ export function useOfflineSync(): UseOfflineSyncReturn {
       console.error('Error sincronizando cola offline:', err)
     } finally {
       setIsSyncing(false)
+      void refresh()
     }
-  }, [isSyncing])
+  }, [isSyncing, refresh])
 
   useEffect(() => {
     const handleOnline = () => {
@@ -41,17 +46,17 @@ export function useOfflineSync(): UseOfflineSyncReturn {
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
     window.addEventListener('celr:sync', sync)
-    window.addEventListener('celr:queued', updatePendingCount)
+    window.addEventListener('celr:queued', refresh)
 
-    updatePendingCount()
+    void refresh()
 
     return () => {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
       window.removeEventListener('celr:sync', sync)
-      window.removeEventListener('celr:queued', updatePendingCount)
+      window.removeEventListener('celr:queued', refresh)
     }
-  }, [sync, updatePendingCount])
+  }, [sync, refresh])
 
-  return { isOnline, isSyncing, pendingCount, sync }
+  return { isOnline, isSyncing, pendingCount, pendientes, sync, refresh }
 }

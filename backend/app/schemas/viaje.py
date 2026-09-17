@@ -31,7 +31,10 @@ class ViajeCreate(BaseModel):
 
 
 class ViajeUpdate(BaseModel):
+    numero_odt: Optional[str] = Field(None, max_length=30)
     num_manifiesto: Optional[str] = Field(None, max_length=30)
+    vehiculo_id: Optional[int] = None
+    conductor_id: Optional[int] = None
     origen: Optional[str] = Field(None, max_length=100)
     destino: Optional[str] = Field(None, max_length=100)
     empresa_manifiesto: Optional[str] = Field(None, max_length=150)

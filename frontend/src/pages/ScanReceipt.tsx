@@ -56,6 +56,7 @@ const ScanReceipt: React.FC = () => {
   const [success, setSuccess] = useState('')
 
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
+  const [preview, setPreview] = useState('')
   const [form, setForm] = useState<CapturaForm>({
     num_factura: '',
     valor_total: '',
@@ -65,6 +66,16 @@ const ScanReceipt: React.FC = () => {
     cantidad_galones: '',
     km_registro: '',
   })
+
+  useEffect(() => {
+    if (!file) {
+      setPreview('')
+      return
+    }
+    const url = URL.createObjectURL(file)
+    setPreview(url)
+    return () => URL.revokeObjectURL(url)
+  }, [file])
 
   useEffect(() => {
     const cargar = async () => {
@@ -89,14 +100,14 @@ const ScanReceipt: React.FC = () => {
   }, [])
 
   const handleScan = async () => {
-    if (!file || !viajeId || !vehiculoId) return
+    if (!file || !vehiculoId) return
     setScanning(true)
     setScanError('')
     setSaveError('')
     setSuccess('')
     setScanResult(null)
     try {
-      const res = await gastosAPI.scanReceipt(file, Number(viajeId), Number(vehiculoId))
+      const res = await gastosAPI.scanReceipt(file, viajeId ? Number(viajeId) : null, Number(vehiculoId))
       const data: ScanResult = res.data
       setScanResult(data)
       setForm({
@@ -123,21 +134,22 @@ const ScanReceipt: React.FC = () => {
     setSaveError('')
     setSuccess('')
     try {
-      await gastosAPI.actualizar(scanResult.gasto_id, {
-        viaje_id: Number(viajeId),
+      const payload: Record<string, any> = {
         vehiculo_id: Number(vehiculoId),
         categoria: form.categoria,
         descripcion: form.descripcion || undefined,
         num_factura: form.num_factura || undefined,
         fecha_gasto: form.fecha_gasto,
         valor_total: form.valor_total,
-        cantidad_galones: form.cantidad_galones || undefined,
-        km_registro: form.km_registro || undefined,
         asumido_por: 'empresa',
         responsable_pago: 'conductor',
         tiene_num_factura: Boolean(form.num_factura),
         hash_comprobante: scanResult.hash_comprobante,
-      })
+      }
+      if (form.cantidad_galones) payload.cantidad_galones = form.cantidad_galones
+      if (form.km_registro) payload.km_registro = form.km_registro
+      if (viajeId) payload.viaje_id = Number(viajeId)
+      await gastosAPI.actualizar(scanResult.gasto_id, payload)
       setSuccess(`Gasto #${scanResult.gasto_id} confirmado correctamente`)
       navigate('/gastos')
     } catch (err) {
@@ -166,13 +178,18 @@ const ScanReceipt: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1">Viaje / ODT</label>
                 <select value={viajeId} onChange={(e) => setViajeId(e.target.value)} className="input-truck">
-                  <option value="">Selecciona un viaje</option>
+                  <option value="">Gastos fijos / Mantenimiento (sin ODT)</option>
                   {viajes.map((v) => (
                     <option key={v.id} value={v.id}>
                       {v.numero_odt} ({v.estado})
                     </option>
                   ))}
                 </select>
+                {!viajeId && (
+                  <p className="text-xs text-yellow-400 mt-1">
+                    Sin ODT: se guardará como gasto de vehículo (Gasto Fijo / Mantenimiento).
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1">Vehículo</label>
@@ -210,7 +227,7 @@ const ScanReceipt: React.FC = () => {
                 </div>
                 <button
                   onClick={handleScan}
-                  disabled={scanning || !viajeId || !vehiculoId}
+                  disabled={scanning || !file || !vehiculoId}
                   className="btn-celr disabled:opacity-50"
                 >
                   <span className="flex items-center gap-2">
@@ -247,109 +264,132 @@ const ScanReceipt: React.FC = () => {
         <div className="card-truck">
           <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
             <Receipt size={20} />
-            Formulario de Captura
+            Revisar y Confirmar Recibo
           </h3>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4 text-sm">
-            <div className="glass rounded-lg p-3">
-              <p className="text-slate-400">Proveedor (OCR)</p>
-              <p className="text-white font-medium">{scanResult.proveedor}</p>
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+            <div className="lg:col-span-2 space-y-4">
+              {preview && (
+                <div>
+                  <img
+                    src={preview}
+                    alt="Recibo escaneado"
+                    className="w-full max-h-80 object-contain rounded-lg border border-slate-700 bg-slate-800"
+                  />
+                  <p className="text-xs text-slate-500 mt-2 truncate">{file?.name}</p>
+                </div>
+              )}
+
+              <div className="glass rounded-lg p-3 space-y-2 text-sm">
+                <div>
+                  <p className="text-slate-400">Proveedor (OCR)</p>
+                  <p className="text-white font-medium">{scanResult.proveedor}</p>
+                </div>
+                <div>
+                  <p className="text-slate-400">Hash comprobante</p>
+                  <p className="text-slate-300 font-mono text-xs break-all">{scanResult.hash_comprobante}</p>
+                </div>
+                <div>
+                  <p className="text-slate-400">Gasto generado</p>
+                  <p className="text-white font-medium">#{scanResult.gasto_id}</p>
+                </div>
+              </div>
             </div>
-            <div className="glass rounded-lg p-3">
-              <p className="text-slate-400">Hash comprobante</p>
-              <p className="text-slate-300 font-mono text-xs break-all">{scanResult.hash_comprobante}</p>
-            </div>
-            <div className="glass rounded-lg p-3">
-              <p className="text-slate-400">Gasto generado</p>
-              <p className="text-white font-medium">#{scanResult.gasto_id}</p>
+
+            <div className="lg:col-span-3">
+              <p className="text-sm text-slate-400 mb-4">
+                Valida los datos extraídos por el OCR y confirma el gasto.
+              </p>
+
+              <form onSubmit={handleSave} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Valor Total</label>
+                  <input
+                    type="number"
+                    value={form.valor_total}
+                    onChange={(e) => setForm({ ...form, valor_total: e.target.value })}
+                    className="input-truck"
+                    min="0.01"
+                    step="0.01"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Fecha</label>
+                  <input
+                    type="date"
+                    value={form.fecha_gasto}
+                    onChange={(e) => setForm({ ...form, fecha_gasto: e.target.value })}
+                    className="input-truck"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">N° Factura</label>
+                  <input
+                    type="text"
+                    value={form.num_factura}
+                    onChange={(e) => setForm({ ...form, num_factura: e.target.value })}
+                    className="input-truck"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Categoría</label>
+                  <select
+                    value={form.categoria}
+                    onChange={(e) => setForm({ ...form, categoria: e.target.value })}
+                    className="input-truck"
+                  >
+                    {categorias.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Galones</label>
+                  <input
+                    type="number"
+                    value={form.cantidad_galones}
+                    onChange={(e) => setForm({ ...form, cantidad_galones: e.target.value })}
+                    className="input-truck"
+                    step="0.01"
+                    min="0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">KM Registro</label>
+                  <input
+                    type="number"
+                    value={form.km_registro}
+                    onChange={(e) => setForm({ ...form, km_registro: e.target.value })}
+                    className="input-truck"
+                    step="0.01"
+                    min="0"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Descripción</label>
+                  <input
+                    type="text"
+                    value={form.descripcion}
+                    onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
+                    className="input-truck"
+                  />
+                </div>
+                <div className="md:col-span-2 flex items-center justify-between">
+                  <span className="text-sm text-slate-400">
+                    Total detectado: {formatearMoneda(scanResult.valor_total)}
+                  </span>
+                  <button type="submit" disabled={saving} className="btn-celr flex items-center gap-2">
+                    {saving ? <Loader2 className="animate-spin" size={20} /> : <Save size={20} />}
+                    {saving ? 'Guardando...' : 'Confirmar Gasto'}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
-
-          <form onSubmit={handleSave} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Monto</label>
-              <input
-                type="number"
-                value={form.valor_total}
-                onChange={(e) => setForm({ ...form, valor_total: e.target.value })}
-                className="input-truck"
-                min="0.01"
-                step="0.01"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Fecha</label>
-              <input
-                type="date"
-                value={form.fecha_gasto}
-                onChange={(e) => setForm({ ...form, fecha_gasto: e.target.value })}
-                className="input-truck"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">N° Factura</label>
-              <input
-                type="text"
-                value={form.num_factura}
-                onChange={(e) => setForm({ ...form, num_factura: e.target.value })}
-                className="input-truck"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Categoría</label>
-              <select
-                value={form.categoria}
-                onChange={(e) => setForm({ ...form, categoria: e.target.value })}
-                className="input-truck"
-              >
-                {categorias.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Galones</label>
-              <input
-                type="number"
-                value={form.cantidad_galones}
-                onChange={(e) => setForm({ ...form, cantidad_galones: e.target.value })}
-                className="input-truck"
-                step="0.01"
-                min="0"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">KM Registro</label>
-              <input
-                type="number"
-                value={form.km_registro}
-                onChange={(e) => setForm({ ...form, km_registro: e.target.value })}
-                className="input-truck"
-                step="0.01"
-                min="0"
-              />
-            </div>
-            <div className="md:col-span-2 lg:col-span-3">
-              <label className="block text-sm font-medium text-slate-300 mb-1">Descripción</label>
-              <input
-                type="text"
-                value={form.descripcion}
-                onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
-                className="input-truck"
-              />
-            </div>
-            <div className="md:col-span-2 lg:col-span-3 flex items-center justify-between">
-              <span className="text-sm text-slate-400">Total detectado: {formatearMoneda(scanResult.valor_total)}</span>
-              <button type="submit" disabled={saving} className="btn-celr flex items-center gap-2">
-                {saving ? <Loader2 className="animate-spin" size={20} /> : <Save size={20} />}
-                {saving ? 'Guardando...' : 'Confirmar Gasto'}
-              </button>
-            </div>
-          </form>
         </div>
       )}
     </div>

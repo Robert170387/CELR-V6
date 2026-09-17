@@ -22,6 +22,25 @@ class ConductorCreate(BaseModel):
         return v
 
 
+class ConductorUpdate(BaseModel):
+    nombre_completo: Optional[str] = Field(None, max_length=150)
+    cedula: Optional[str] = Field(None, max_length=20)
+    telefono: Optional[str] = Field(None, max_length=20)
+    correo: Optional[str] = Field(None, max_length=100)
+    direccion: Optional[str] = None
+    num_licencia: Optional[str] = Field(None, max_length=30)
+    categoria_licencia: Optional[str] = Field(None, max_length=10)
+    vencimiento_licencia: Optional[date] = None
+    estado: Optional[str] = Field(None, max_length=20)
+
+    @validator("estado")
+    def validate_estado(cls, v):
+        allowed = {"activo", "inactivo", "vacaciones", "incapacitado"}
+        if v is not None and v not in allowed:
+            raise ValueError(f"debe ser uno de {allowed}")
+        return v
+
+
 class ConductorResponse(BaseModel):
     id: int
     nombre_completo: str

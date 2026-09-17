@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react'
-import { Package, Truck, Plus, Loader2, AlertCircle, CheckCircle2, XCircle } from 'lucide-react'
-import { viajesAPI, vehiculosAPI, conductoresAPI } from '@/api'
-import { extraerMensajeError, esErrorDeRed } from '@/utils/format'
+import React, { useState, useEffect, useMemo } from 'react'
+import { Package, Truck, Plus, Loader2, AlertCircle, CheckCircle2, XCircle, Pencil, Trash2, X } from 'lucide-react'
+import { viajesAPI, vehiculosAPI, conductoresAPI, gastosAPI } from '@/api'
+import { extraerMensajeError, esErrorDeRed, formatearMoneda } from '@/utils/format'
 import { encolarOffline } from '@/utils/offlineStore'
 import { useAuth } from '@/context/AuthContext'
 
@@ -17,6 +17,11 @@ interface Conductor {
   cedula: string
 }
 
+interface GastoResumen {
+  viaje_id: number | null
+  valor_total: string
+}
+
 interface Viaje {
   id: number
   numero_odt: string
@@ -27,6 +32,7 @@ interface Viaje {
   fecha_salida: string
   estado: string
   flete_neto: string | null
+  valor_flete_manifiesto: string | null
 }
 
 const estadoStyles: Record<string, string> = {
@@ -57,18 +63,41 @@ const initialForm = {
   estado: 'en_curso',
 }
 
+const camposViaje = [
+  'numero_odt',
+  'vehiculo_id',
+  'conductor_id',
+  'origen',
+  'destino',
+  'fecha_salida',
+  'valor_flete_manifiesto',
+  'retefuente_valor',
+  'reteica_valor',
+  'estado',
+] as const
+
 const Viajes: React.FC = () => {
   const { user } = useAuth()
   const esConductor = user?.rol === 'conductor'
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>([])
   const [conductores, setConductores] = useState<Conductor[]>([])
   const [viajes, setViajes] = useState<Viaje[]>([])
+  const [gastos, setGastos] = useState<GastoResumen[]>([])
   const [form, setForm] = useState(initialForm)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [formError, setFormError] = useState('')
+
+  const [editando, setEditando] = useState<Viaje | null>(null)
+  const [editForm, setEditForm] = useState<Record<string, string>>({})
+  const [editError, setEditError] = useState('')
+  const [editandoSubmit, setEditandoSubmit] = useState(false)
+
+  const [eliminarTarget, setEliminarTarget] = useState<Viaje | null>(null)
+  const [eliminarError, setEliminarError] = useState('')
+  const [eliminando, setEliminando] = useState(false)
 
   const cargarDatos = async () => {
     setLoading(true)
@@ -78,12 +107,14 @@ const Viajes: React.FC = () => {
         esConductor && user?.conductor_id
           ? viajesAPI.porConductor(user.conductor_id)
           : viajesAPI.listar(false)
-      const [viajesRes, vehiculosRes, conductoresRes] = await Promise.all([
+      const [viajesRes, vehiculosRes, conductoresRes, gastosRes] = await Promise.all([
         viajesPromise,
         vehiculosAPI.listar(),
         conductoresAPI.listar(),
+        gastosAPI.listar(),
       ])
       setViajes(viajesRes.data)
+      setGastos(gastosRes.data)
       setVehiculos(vehiculosRes.data)
       setConductores(conductoresRes.data)
       if (!form.vehiculo_id && vehiculosRes.data.length > 0) {
@@ -102,6 +133,15 @@ const Viajes: React.FC = () => {
   useEffect(() => {
     cargarDatos()
   }, [user?.id])
+
+  const recargarViajes = async () => {
+    const viajesRes = esConductor && user?.conductor_id
+      ? await viajesAPI.porConductor(user.conductor_id)
+      : await viajesAPI.listar(false)
+    setViajes(viajesRes.data)
+    const gastosRes = await gastosAPI.listar()
+    setGastos(gastosRes.data)
+  }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value })
@@ -152,6 +192,150 @@ const Viajes: React.FC = () => {
       setSubmitting(false)
     }
   }
+
+  const abrirEdicion = (viaje: Viaje) => {
+    const values: Record<string, string> = {}
+    for (const campo of camposViaje) {
+      const v = (viaje as any)[campo]
+      values[campo] = v === null || v === undefined ? '' : String(v)
+    }
+    setEditando(viaje)
+    setEditForm(values)
+    setEditError('')
+  }
+
+  const handleEditChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    setEditForm({ ...editForm, [e.target.name]: e.target.value })
+  }
+
+  const guardarEdicion = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setEditError('')
+    if (!editando) return
+    if (!editForm.vehiculo_id || !editForm.conductor_id) {
+      setEditError('Selecciona un vehículo y un conductor')
+      return
+    }
+
+    const payload: Record<string, any> = {
+      numero_odt: editForm.numero_odt.trim(),
+      vehiculo_id: Number(editForm.vehiculo_id),
+      conductor_id: Number(editForm.conductor_id),
+      origen: editForm.origen.trim(),
+      destino: editForm.destino.trim(),
+      fecha_salida: editForm.fecha_salida,
+      estado: editForm.estado,
+    }
+    if (editForm.valor_flete_manifiesto) payload.valor_flete_manifiesto = Number(editForm.valor_flete_manifiesto)
+    if (editForm.retefuente_valor) payload.retefuente_valor = Number(editForm.retefuente_valor)
+    if (editForm.reteica_valor) payload.reteica_valor = Number(editForm.reteica_valor)
+
+    setEditandoSubmit(true)
+    try {
+      await viajesAPI.actualizar(editando.id, payload)
+      setSuccess(`ODT ${editando.numero_odt} actualizada correctamente`)
+      setEditando(null)
+      await recargarViajes()
+    } catch (err) {
+      setEditError(extraerMensajeError(err))
+    } finally {
+      setEditandoSubmit(false)
+    }
+  }
+
+  const confirmarEliminar = async () => {
+    if (!eliminarTarget) return
+    setEliminarError('')
+    setEliminando(true)
+    try {
+      await viajesAPI.eliminar(eliminarTarget.id)
+      setSuccess(`ODT ${eliminarTarget.numero_odt} eliminada correctamente`)
+      setEliminarTarget(null)
+      await recargarViajes()
+    } catch (err) {
+      setEliminarError(extraerMensajeError(err))
+    } finally {
+      setEliminando(false)
+    }
+  }
+
+  const renderCampoEdicion = (campo: (typeof camposViaje)[number]) => {
+    if (campo === 'vehiculo_id') {
+      return (
+        <select name={campo} value={editForm[campo] || ''} onChange={handleEditChange} className="input-truck" required>
+          <option value="">Selecciona un vehículo</option>
+          {vehiculos.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.placa} - {v.marca}
+            </option>
+          ))}
+        </select>
+      )
+    }
+    if (campo === 'conductor_id') {
+      return (
+        <select name={campo} value={editForm[campo] || ''} onChange={handleEditChange} className="input-truck" required>
+          <option value="">Selecciona un conductor</option>
+          {conductores.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.nombre_completo}
+            </option>
+          ))}
+        </select>
+      )
+    }
+    if (campo === 'estado') {
+      return (
+        <select name={campo} value={editForm[campo] || ''} onChange={handleEditChange} className="input-truck">
+          {estadoItems.map((e) => (
+            <option key={e.value} value={e.value}>
+              {e.label}
+            </option>
+          ))}
+        </select>
+      )
+    }
+    const esNumero = ['valor_flete_manifiesto', 'retefuente_valor', 'reteica_valor'].includes(campo)
+    return (
+      <input
+        type={campo === 'fecha_salida' ? 'date' : esNumero ? 'number' : 'text'}
+        name={campo}
+        value={editForm[campo] || ''}
+        onChange={handleEditChange}
+        className="input-truck"
+        min={esNumero ? '0' : undefined}
+        step={esNumero ? '0.01' : undefined}
+      />
+    )
+  }
+
+const traduccionCampo: Record<string, string> = {
+  numero_odt: 'Número ODT',
+  vehiculo_id: 'Vehículo',
+  conductor_id: 'Conductor',
+  origen: 'Origen',
+  destino: 'Destino',
+  fecha_salida: 'Fecha salida',
+  valor_flete_manifiesto: 'Valor flete manifiesto',
+  retefuente_valor: 'Retefuente valor',
+  reteica_valor: 'Reteica valor',
+  estado: 'Estado',
+}
+
+const gastosPorViaje = useMemo(() => {
+  const mapa: Record<number, number> = {}
+  for (const g of gastos) {
+    if (g.viaje_id == null) continue
+    mapa[g.viaje_id] = (mapa[g.viaje_id] || 0) + Number(g.valor_total || 0)
+  }
+  return mapa
+}, [gastos])
+
+const margenDe = (viaje: Viaje): number | null => {
+  const neto = Number(viaje.flete_neto) || Number(viaje.valor_flete_manifiesto) || 0
+  if (!viaje.flete_neto && !viaje.valor_flete_manifiesto) return null
+  return neto - (gastosPorViaje[viaje.id] || 0)
+}
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -381,7 +565,9 @@ const Viajes: React.FC = () => {
                   <th className="py-2 px-3">Ruta</th>
                   <th className="py-2 px-3">Fecha Salida</th>
                   <th className="py-2 px-3">Flete Neto</th>
+                  <th className="py-2 px-3">Margen Est.</th>
                   <th className="py-2 px-3">Estado</th>
+                  {!esConductor && <th className="py-2 px-3 text-right">Acciones</th>}
                 </tr>
               </thead>
               <tbody>
@@ -399,10 +585,46 @@ const Viajes: React.FC = () => {
                       <td className="py-3 px-3 text-slate-400">{viaje.fecha_salida}</td>
                       <td className="py-3 px-3 text-white">{viaje.flete_neto ? `$${Number(viaje.flete_neto).toLocaleString('es-CO')}` : '-'}</td>
                       <td className="py-3 px-3">
+                        {(() => {
+                          const margen = margenDe(viaje)
+                          if (margen === null) return <span className="text-slate-500">-</span>
+                          return (
+                            <span className={`font-semibold ${margen >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              {formatearMoneda(margen)}
+                            </span>
+                          )
+                        })()}
+                      </td>
+                      <td className="py-3 px-3">
                         <span className={`px-2 py-1 rounded-full text-xs ${estadoStyles[viaje.estado] || 'bg-slate-500/20 text-slate-400'}`}>
                           {viaje.estado}
                         </span>
                       </td>
+                      {!esConductor && (
+                        <td className="py-3 px-3">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={() => abrirEdicion(viaje)}
+                              className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-primary-400 transition-colors"
+                              title="Editar"
+                            >
+                              <Pencil size={16} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEliminarError('')
+                                setEliminarTarget(viaje)
+                              }}
+                              className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-danger-500 transition-colors"
+                              title="Eliminar"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   )
                 })}
@@ -411,6 +633,101 @@ const Viajes: React.FC = () => {
           </div>
         )}
       </div>
+
+      {editando && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="card-truck w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                <Pencil size={18} className="text-primary-400" />
+                Editar ODT {editando.numero_odt}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditando(null)}
+                className="p-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {editError && (
+              <div className="flex items-center gap-2 bg-danger-500/10 border border-danger-500/30 text-danger-500 px-4 py-3 rounded-lg mb-4">
+                <AlertCircle size={18} />
+                <span>{editError}</span>
+              </div>
+            )}
+
+            <form onSubmit={guardarEdicion} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {camposViaje.map((campo) => (
+                <div key={campo}>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">{traduccionCampo[campo]}</label>
+                  {renderCampoEdicion(campo)}
+                </div>
+              ))}
+              <div className="md:col-span-2 flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditando(null)}
+                  className="py-2 px-4 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button type="submit" disabled={editandoSubmit} className="btn-celr flex items-center gap-2">
+                  {editandoSubmit ? <Loader2 className="animate-spin" size={20} /> : <CheckCircle2 size={20} />}
+                  {editandoSubmit ? 'Guardando...' : 'Guardar cambios'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {eliminarTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="card-truck w-full max-w-md">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="p-2 rounded-full bg-danger-500/20 text-danger-500">
+                <Trash2 size={22} />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-white">Confirmar eliminación</h3>
+                <p className="text-sm text-slate-400 mt-1">
+                  ¿Seguro que deseas eliminar la ODT{' '}
+                  <span className="text-white font-semibold">{eliminarTarget.numero_odt}</span>? Esta acción no se puede
+                  deshacer.
+                </p>
+              </div>
+            </div>
+
+            {eliminarError && (
+              <div className="flex items-center gap-2 bg-danger-500/10 border border-danger-500/30 text-danger-500 px-4 py-3 rounded-lg mb-4">
+                <AlertCircle size={18} />
+                <span>{eliminarError}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEliminarTarget(null)}
+                className="py-2 px-4 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarEliminar}
+                disabled={eliminando}
+                className="btn-celr-danger flex items-center gap-2"
+              >
+                {eliminando ? <Loader2 className="animate-spin" size={20} /> : <Trash2 size={18} />}
+                {eliminando ? 'Eliminando...' : 'Eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

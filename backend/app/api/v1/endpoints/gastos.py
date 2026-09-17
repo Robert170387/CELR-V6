@@ -3,14 +3,15 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 
-from app.api.v1.deps import get_current_user
+from app.api.v1.deps import get_current_user, RoleChecker
 from app.core.config import settings
+from app.core.roles import ROLES_LIQUIDACIONES
 from app.db.session import get_db
 from app.models.flota import Usuario
 from app.models.operaciones import Gasto
-from app.schemas.gasto import GastoCreate, GastoResponse
+from app.schemas.gasto import GastoCreate, GastoUpdate, GastoResponse
 from app.services.ocr_service import OCRService
 
 logger = logging.getLogger(__name__)
@@ -81,10 +82,14 @@ def obtener_gasto(
     return db_gasto
 
 
-@router.put("/gastos/{gasto_id}", response_model=GastoResponse)
+@router.put(
+    "/gastos/{gasto_id}",
+    response_model=GastoResponse,
+    dependencies=[Depends(RoleChecker(ROLES_LIQUIDACIONES))],
+)
 def actualizar_gasto(
     gasto_id: int,
-    gasto: GastoCreate,
+    gasto: GastoUpdate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -103,7 +108,11 @@ def actualizar_gasto(
     return db_gasto
 
 
-@router.delete("/gastos/{gasto_id}", status_code=204)
+@router.delete(
+    "/gastos/{gasto_id}",
+    status_code=204,
+    dependencies=[Depends(RoleChecker(ROLES_LIQUIDACIONES))],
+)
 def eliminar_gasto(
     gasto_id: int,
     db: Session = Depends(get_db),
@@ -112,15 +121,22 @@ def eliminar_gasto(
     db_gasto = db.query(Gasto).filter(Gasto.id == gasto_id).first()
     if not db_gasto:
         raise HTTPException(status_code=404, detail="Gasto no encontrado")
-    db.delete(db_gasto)
-    db.commit()
+    try:
+        db.delete(db_gasto)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="No se puede eliminar: el gasto tiene registros asociados.",
+        )
     return None
 
 
 @router.post("/gastos/scan-receipt")
 async def scan_receipt(
     file: UploadFile = File(...),
-    viaje_id: int = Form(...),
+    viaje_id: Optional[int] = Form(None),
     vehiculo_id: int = Form(...),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -153,8 +169,8 @@ async def scan_receipt(
     try:
         return service.save_scan_result(
             file_bytes,
-            viaje_id,
-            vehiculo_id,
+            vehiculo_id=vehiculo_id,
+            viaje_id=viaje_id,
             reportado_por=current_user.id,
         )
     except HTTPException:

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { Truck, Users, Building2, Plus, Loader2, AlertCircle, CheckCircle2, XCircle, type LucideIcon } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
+import { Truck, Users, Building2, Plus, Loader2, AlertCircle, CheckCircle2, XCircle, Pencil, Trash2, X, type LucideIcon } from 'lucide-react'
 import { vehiculosAPI, conductoresAPI, proveedoresAPI } from '@/api'
 import { extraerMensajeError } from '@/utils/format'
 
@@ -23,12 +24,15 @@ interface EntityPanelProps {
   icono: LucideIcon
   listar: () => Promise<{ data: any[] }>
   crear: (data: any) => Promise<{ data: any }>
+  actualizar: (id: number, data: any) => Promise<{ data: any }>
+  eliminar: (id: number) => Promise<any>
   columnas: Columna[]
   campos: Campo[]
   inicial: Record<string, string>
+  campoIdentificador: string
 }
 
-function EntityPanel({ titulo, icono: Icono, listar, crear, columnas, campos, inicial }: EntityPanelProps) {
+function EntityPanel({ titulo, icono: Icono, listar, crear, actualizar, eliminar, columnas, campos, inicial, campoIdentificador }: EntityPanelProps) {
   const [items, setItems] = useState<any[]>([])
   const [form, setForm] = useState<Record<string, string>>(inicial)
   const [loading, setLoading] = useState(true)
@@ -36,6 +40,15 @@ function EntityPanel({ titulo, icono: Icono, listar, crear, columnas, campos, in
   const [error, setError] = useState('')
   const [formError, setFormError] = useState('')
   const [success, setSuccess] = useState('')
+
+  const [editando, setEditando] = useState<any | null>(null)
+  const [editForm, setEditForm] = useState<Record<string, string>>({})
+  const [editError, setEditError] = useState('')
+  const [editandoSubmit, setEditandoSubmit] = useState(false)
+
+  const [eliminarTarget, setEliminarTarget] = useState<any | null>(null)
+  const [eliminarError, setEliminarError] = useState('')
+  const [eliminando, setEliminando] = useState(false)
 
   const cargar = async () => {
     setLoading(true)
@@ -58,22 +71,28 @@ function EntityPanel({ titulo, icono: Icono, listar, crear, columnas, campos, in
     setForm({ ...form, [e.target.name]: e.target.value })
   }
 
+  const construirPayload = (values: Record<string, string>) => {
+    const payload: Record<string, any> = {}
+    for (const campo of campos) {
+      const raw = values[campo.name]
+      if (raw === undefined || raw === '') {
+        if (campo.required) return { error: `El campo "${campo.label}" es obligatorio` }
+        continue
+      }
+      payload[campo.name] = campo.numeric ? Number(raw) : raw
+    }
+    return { payload }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setFormError('')
     setSuccess('')
 
-    const payload: Record<string, any> = {}
-    for (const campo of campos) {
-      const raw = form[campo.name]
-      if (raw === undefined || raw === '') {
-        if (campo.required) {
-          setFormError(`El campo "${campo.label}" es obligatorio`)
-          return
-        }
-        continue
-      }
-      payload[campo.name] = campo.numeric ? Number(raw) : raw
+    const { payload, error: errPayload } = construirPayload(form)
+    if (errPayload) {
+      setFormError(errPayload)
+      return
     }
 
     setSubmitting(true)
@@ -88,6 +107,63 @@ function EntityPanel({ titulo, icono: Icono, listar, crear, columnas, campos, in
       setSubmitting(false)
     }
   }
+
+  const abrirEdicion = (item: any) => {
+    const values: Record<string, string> = {}
+    for (const campo of campos) {
+      const v = item[campo.name]
+      values[campo.name] = v === null || v === undefined ? '' : String(v)
+    }
+    setEditando(item)
+    setEditForm(values)
+    setEditError('')
+  }
+
+  const handleEditChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    setEditForm({ ...editForm, [e.target.name]: e.target.value })
+  }
+
+  const guardarEdicion = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setEditError('')
+    if (!editando) return
+
+    const { payload, error: errPayload } = construirPayload(editForm)
+    if (errPayload) {
+      setEditError(errPayload)
+      return
+    }
+
+    setEditandoSubmit(true)
+    try {
+      const res = await actualizar(editando.id, payload)
+      setSuccess(`${titulo} #${res.data.id} actualizado correctamente`)
+      setEditando(null)
+      await cargar()
+    } catch (err) {
+      setEditError(extraerMensajeError(err))
+    } finally {
+      setEditandoSubmit(false)
+    }
+  }
+
+  const confirmarEliminar = async () => {
+    if (!eliminarTarget) return
+    setEliminarError('')
+    setEliminando(true)
+    try {
+      await eliminar(eliminarTarget.id)
+      setSuccess(`${titulo} #${eliminarTarget.id} eliminado correctamente`)
+      setEliminarTarget(null)
+      await cargar()
+    } catch (err) {
+      setEliminarError(extraerMensajeError(err))
+    } finally {
+      setEliminando(false)
+    }
+  }
+
+  const identificador = (item: any) => String(item[campoIdentificador] ?? item.id)
 
   return (
     <div className="space-y-6">
@@ -183,6 +259,7 @@ function EntityPanel({ titulo, icono: Icono, listar, crear, columnas, campos, in
                       {c.label}
                     </th>
                   ))}
+                  <th className="py-2 px-3 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -195,6 +272,29 @@ function EntityPanel({ titulo, icono: Icono, listar, crear, columnas, campos, in
                           : String(item[c.key])}
                       </td>
                     ))}
+                    <td className="py-3 px-3">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => abrirEdicion(item)}
+                          className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-primary-400 transition-colors"
+                          title="Editar"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEliminarError('')
+                            setEliminarTarget(item)
+                          }}
+                          className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-danger-500 transition-colors"
+                          title="Eliminar"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -202,6 +302,124 @@ function EntityPanel({ titulo, icono: Icono, listar, crear, columnas, campos, in
           </div>
         )}
       </div>
+
+      {editando && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="card-truck w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                <Pencil size={18} className="text-primary-400" />
+                Editar {titulo.toLowerCase()} {identificador(editando)}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditando(null)}
+                className="p-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {editError && (
+              <div className="flex items-center gap-2 bg-danger-500/10 border border-danger-500/30 text-danger-500 px-4 py-3 rounded-lg mb-4">
+                <AlertCircle size={18} />
+                <span>{editError}</span>
+              </div>
+            )}
+
+            <form onSubmit={guardarEdicion} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {campos.map((campo) => (
+                <div key={campo.name}>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">{campo.label}</label>
+                  {campo.type === 'select' ? (
+                    <select
+                      name={campo.name}
+                      value={editForm[campo.name] || ''}
+                      onChange={handleEditChange}
+                      className="input-truck"
+                    >
+                      <option value="">Selecciona...</option>
+                      {campo.options?.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type={campo.type || 'text'}
+                      name={campo.name}
+                      value={editForm[campo.name] || ''}
+                      onChange={handleEditChange}
+                      className="input-truck"
+                      placeholder={campo.placeholder}
+                    />
+                  )}
+                </div>
+              ))}
+              <div className="md:col-span-2 flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditando(null)}
+                  className="py-2 px-4 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button type="submit" disabled={editandoSubmit} className="btn-celr flex items-center gap-2">
+                  {editandoSubmit ? <Loader2 className="animate-spin" size={20} /> : <CheckCircle2 size={20} />}
+                  {editandoSubmit ? 'Guardando...' : 'Guardar cambios'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {eliminarTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="card-truck w-full max-w-md">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="p-2 rounded-full bg-danger-500/20 text-danger-500">
+                <Trash2 size={22} />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-white">Confirmar eliminación</h3>
+                <p className="text-sm text-slate-400 mt-1">
+                  ¿Seguro que deseas eliminar {titulo.toLowerCase()}{' '}
+                  <span className="text-white font-semibold">#{identificador(eliminarTarget)}</span>? Esta acción no se
+                  puede deshacer.
+                </p>
+              </div>
+            </div>
+
+            {eliminarError && (
+              <div className="flex items-center gap-2 bg-danger-500/10 border border-danger-500/30 text-danger-500 px-4 py-3 rounded-lg mb-4">
+                <AlertCircle size={18} />
+                <span>{eliminarError}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEliminarTarget(null)}
+                className="py-2 px-4 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarEliminar}
+                disabled={eliminando}
+                className="btn-celr-danger flex items-center gap-2"
+              >
+                {eliminando ? <Loader2 className="animate-spin" size={20} /> : <Trash2 size={18} />}
+                {eliminando ? 'Eliminando...' : 'Eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -239,7 +457,11 @@ const tabs: { id: Tab; label: string; icono: LucideIcon }[] = [
 ]
 
 const Maestras: React.FC = () => {
-  const [tab, setTab] = useState<Tab>('vehiculos')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const tab: Tab = (tabParam === 'conductores' || tabParam === 'proveedores') ? tabParam : 'vehiculos'
+
+  const cambiarTab = (t: Tab) => setSearchParams({ tab: t }, { replace: true })
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -254,7 +476,7 @@ const Maestras: React.FC = () => {
           return (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => cambiarTab(t.id)}
               className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${
                 activo
                   ? 'bg-primary-600 text-white'
@@ -274,6 +496,9 @@ const Maestras: React.FC = () => {
           icono={Truck}
           listar={vehiculosAPI.listar}
           crear={vehiculosAPI.crear}
+          actualizar={vehiculosAPI.actualizar}
+          eliminar={vehiculosAPI.eliminar}
+          campoIdentificador="placa"
           columnas={[
             { key: 'placa', label: 'Placa' },
             { key: 'marca', label: 'Marca' },
@@ -300,6 +525,9 @@ const Maestras: React.FC = () => {
           icono={Users}
           listar={conductoresAPI.listar}
           crear={conductoresAPI.crear}
+          actualizar={conductoresAPI.actualizar}
+          eliminar={conductoresAPI.eliminar}
+          campoIdentificador="nombre_completo"
           columnas={[
             { key: 'nombre_completo', label: 'Nombre' },
             { key: 'cedula', label: 'Cédula' },
@@ -324,6 +552,9 @@ const Maestras: React.FC = () => {
           icono={Building2}
           listar={proveedoresAPI.listar}
           crear={proveedoresAPI.crear}
+          actualizar={proveedoresAPI.actualizar}
+          eliminar={proveedoresAPI.eliminar}
+          campoIdentificador="razon_social"
           columnas={[
             { key: 'razon_social', label: 'Razón social' },
             { key: 'nit', label: 'NIT' },

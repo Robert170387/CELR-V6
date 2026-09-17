@@ -1,0 +1,56 @@
+# CELR v6 - stack local (puertos propios, convive con celr_app_v2 en 5432/8000/5173)
+#   base de datos -> 5433   backend -> 8001   web -> 5174
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: celr_v6_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: celr_v6_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - celr_v6_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d celr_v6_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+    container_name: celr_v6_backend
+    environment:
+      DATABASE_URL: postgresql://postgres:admin@db:5432/celr_v6_db
+      SECRET_KEY: celr-local-dev-secret
+      CORS_ORIGINS: http://localhost:5174,http://localhost:5173,http://127.0.0.1:5174
+    ports:
+      - "8001:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    # init_db / migraciones / seed son idempotentes: seguros al re-ejecutar
+    command: >
+      sh -c "python init_db.py &&
+             python scripts/migrate_roles.py &&
+             python scripts/migrate_gastos_valor.py &&
+             python scripts/migrate_gastos_viaje_nullable.py &&
+             python seed.py &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: celr_v6_web
+    ports:
+      - "5174:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  celr_v6_pgdata:

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Numeric, Date, ForeignKey, Text, DateTime, text
+from sqlalchemy import Column, Integer, String, Numeric, Date, ForeignKey, Text, DateTime, Computed
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.sql import func
 from app.db.base_class import Base
@@ -34,15 +34,15 @@ class LiquidacionConductor(Base):
     bonificaciones = Column(Numeric(14,2), nullable=False, default=0)
     viaticos_reconocidos = Column(Numeric(14,2), nullable=False, default=0)
     otros_haberes = Column(Numeric(14,2), nullable=False, default=0)
-    total_haberes = Column(Numeric(14,2), server_default=text("comision_flete + bonificaciones + viaticos_reconocidos + otros_haberes"), nullable=False)
+    total_haberes = Column(Numeric(14,2), Computed("comision_flete + bonificaciones + viaticos_reconocidos + otros_haberes", persisted=True))
     
     anticipos_entregados = Column(Numeric(14,2), nullable=False, default=0)
     gastos_a_cargo_conductor = Column(Numeric(14,2), nullable=False, default=0)
     prestamos = Column(Numeric(14,2), nullable=False, default=0)
     otros_descuentos = Column(Numeric(14,2), nullable=False, default=0)
-    total_descuentos = Column(Numeric(14,2), server_default=text("anticipos_entregados + gastos_a_cargo_conductor + prestamos + otros_descuentos"), nullable=False)
+    total_descuentos = Column(Numeric(14,2), Computed("anticipos_entregados + gastos_a_cargo_conductor + prestamos + otros_descuentos", persisted=True))
     
-    saldo_neto = Column(Numeric(14,2), server_default=text("comision_flete + bonificaciones + viaticos_reconocidos + otros_haberes - anticipos_entregados - gastos_a_cargo_conductor - prestamos - otros_descuentos"), nullable=False) 
+    saldo_neto = Column(Numeric(14,2), Computed("comision_flete + bonificaciones + viaticos_reconocidos + otros_haberes - anticipos_entregados - gastos_a_cargo_conductor - prestamos - otros_descuentos", persisted=True)) 
     
     viajes_ids = Column(ARRAY(Integer))
     estado = Column(String(20), nullable=False, default='borrador')

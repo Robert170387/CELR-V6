@@ -54,3 +54,7 @@ frontend/.vite/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# --- Repomix -----------------------------------------------------------------
+repomix-output.xml
+repomix-output.txt

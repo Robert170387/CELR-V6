@@ -56,7 +56,7 @@ const Login: React.FC = () => {
                   value={correo}
                   onChange={(e) => setCorreo(e.target.value)}
                   className="input-truck pl-10"
-                  placeholder="tu@celr.com"
+                  placeholder="     tu@celr.com"
                   required
                 />
               </div>
@@ -71,7 +71,7 @@ const Login: React.FC = () => {
                   value={contrasena}
                   onChange={(e) => setContrasena(e.target.value)}
                   className="input-truck pl-10"
-                  placeholder="••••••••"
+                  placeholder="     ••••••••"
                   required
                 />
               </div>

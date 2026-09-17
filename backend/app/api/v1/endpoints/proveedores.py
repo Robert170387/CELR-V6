@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -7,7 +8,7 @@ from app.core.roles import ROLES_ESCRITURA_MAESTROS
 from app.db.session import get_db
 from app.models.flota import Usuario
 from app.models.operaciones import Proveedor
-from app.schemas.proveedor import ProveedorCreate, ProveedorResponse
+from app.schemas.proveedor import ProveedorCreate, ProveedorUpdate, ProveedorResponse
 
 router = APIRouter()
 
@@ -48,3 +49,57 @@ def obtener_proveedor(
     if not db_proveedor:
         raise HTTPException(status_code=404, detail="Proveedor no encontrado")
     return db_proveedor
+
+
+@router.put(
+    "/proveedores/{proveedor_id}",
+    response_model=ProveedorResponse,
+    dependencies=[Depends(RoleChecker(ROLES_ESCRITURA_MAESTROS))],
+)
+def actualizar_proveedor(
+    proveedor_id: int,
+    proveedor: ProveedorUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    db_proveedor = db.query(Proveedor).filter(Proveedor.id == proveedor_id).first()
+    if not db_proveedor:
+        raise HTTPException(status_code=404, detail="Proveedor no encontrado")
+    update_data = proveedor.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_proveedor, key, value)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="No se pudo actualizar: el NIT ya existe o se viola una restricción.",
+        )
+    db.refresh(db_proveedor)
+    return db_proveedor
+
+
+@router.delete(
+    "/proveedores/{proveedor_id}",
+    status_code=204,
+    dependencies=[Depends(RoleChecker(ROLES_ESCRITURA_MAESTROS))],
+)
+def eliminar_proveedor(
+    proveedor_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    db_proveedor = db.query(Proveedor).filter(Proveedor.id == proveedor_id).first()
+    if not db_proveedor:
+        raise HTTPException(status_code=404, detail="Proveedor no encontrado")
+    try:
+        db.delete(db_proveedor)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="No se puede eliminar: el proveedor tiene gastos u otros registros asociados.",
+        )
+    return None

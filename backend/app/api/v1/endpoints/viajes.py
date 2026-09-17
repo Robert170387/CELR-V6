@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from typing import List
 
-from app.api.v1.deps import get_current_user
+from app.api.v1.deps import get_current_user, RoleChecker
+from app.core.roles import ROLES_LIQUIDACIONES
 from app.db.session import get_db
 from app.models.flota import Usuario
 from app.models.operaciones import ViajeODT
@@ -50,7 +52,11 @@ def obtener_viaje(
     return db_viaje
 
 
-@router.put("/viajes/{viaje_id}", response_model=ViajeResponse)
+@router.put(
+    "/viajes/{viaje_id}",
+    response_model=ViajeResponse,
+    dependencies=[Depends(RoleChecker(ROLES_LIQUIDACIONES))],
+)
 def actualizar_viaje(
     viaje_id: int,
     viaje: ViajeUpdate,
@@ -63,12 +69,23 @@ def actualizar_viaje(
     update_data = viaje.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(db_viaje, key, value)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=404,
+            detail="El vehículo o conductor especificado no existe",
+        )
     db.refresh(db_viaje)
     return db_viaje
 
 
-@router.delete("/viajes/{viaje_id}", status_code=204)
+@router.delete(
+    "/viajes/{viaje_id}",
+    status_code=204,
+    dependencies=[Depends(RoleChecker(ROLES_LIQUIDACIONES))],
+)
 def eliminar_viaje(
     viaje_id: int,
     db: Session = Depends(get_db),
@@ -77,8 +94,15 @@ def eliminar_viaje(
     db_viaje = db.query(ViajeODT).filter(ViajeODT.id == viaje_id).first()
     if not db_viaje:
         raise HTTPException(status_code=404, detail="Viaje no encontrado")
-    db.delete(db_viaje)
-    db.commit()
+    try:
+        db.delete(db_viaje)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="No se puede eliminar: el viaje tiene gastos, ingresos o liquidaciones asociados.",
+        )
     return None
 
 

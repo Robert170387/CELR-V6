@@ -44,6 +44,46 @@ class IngresoCreate(BaseModel):
         return v
 
 
+class IngresoUpdate(BaseModel):
+    viaje_id: Optional[int] = None
+    vehiculo_id: Optional[int] = None
+    tipo_ingreso: Optional[str] = Field(None, max_length=30)
+    descripcion: Optional[str] = None
+    fecha_ingreso: Optional[date] = None
+    valor: Optional[Decimal] = Field(None, gt=0)
+    forma_pago: Optional[str] = Field(None, max_length=30)
+    num_referencia: Optional[str] = Field(None, max_length=50)
+    estado_pago: Optional[str] = Field(None, max_length=20)
+    observaciones: Optional[str] = None
+    creado_por: Optional[int] = None
+
+    @validator("tipo_ingreso")
+    def validate_tipo_ingreso(cls, v):
+        allowed = {
+            "flete", "anticipo", "cumplido", "compensacion",
+            "bono", "traslado_fondos", "aporte_capital", "otro",
+        }
+        if v is not None and v not in allowed:
+            raise ValueError(f"debe ser uno de {allowed}")
+        return v
+
+    @validator("forma_pago")
+    def validate_forma_pago(cls, v):
+        if v is None:
+            return v
+        allowed = {"transferencia", "cheque", "efectivo", "otro"}
+        if v not in allowed:
+            raise ValueError(f"debe ser uno de {allowed}")
+        return v
+
+    @validator("estado_pago")
+    def validate_estado_pago(cls, v):
+        allowed = {"pendiente", "recibido", "en_disputa"}
+        if v is not None and v not in allowed:
+            raise ValueError(f"debe ser uno de {allowed}")
+        return v
+
+
 class IngresoResponse(BaseModel):
     id: int
     viaje_id: int
