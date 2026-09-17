@@ -1,0 +1,56 @@
+# ===========================================================================
+# CELR v6 - .gitignore raíz
+# ===========================================================================
+
+# --- Secretos y entorno -----------------------------------------------------
+# Nunca versionar credenciales. El .env.production del frontend SÍ se versiona
+# porque solo contiene la URL pública de la API (VITE_API_URL), no secretos.
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+**/.env.*.local
+!frontend/.env.production
+
+# --- Python -----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+backend/temp_test_img.bin
+
+# --- Entornos virtuales -----------------------------------------------------
+venv/
+.venv/
+env/
+ENV/
+backend/venv/
+
+# --- Node / Frontend --------------------------------------------------------
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+*.local
+
+# --- Artefactos y logs ------------------------------------------------------
+*.tsbuildinfo
+*.log
+*.sqlite3
+*.sqlite3-journal
+
+# --- Editores / SO ----------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini

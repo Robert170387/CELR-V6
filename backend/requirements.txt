@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary
+pydantic-settings
+python-dotenv
+python-multipart
+python-jose[cryptography]
+passlib[bcrypt]
+
+# OCR (motor local por defecto: requiere el binario Tesseract + idioma 'spa')
+pytesseract
+Pillow
+# Adaptador OCR en la nube (opcional): activar con OCR_ENGINE=google
+# google-cloud-vision
