@@ -48,7 +48,11 @@ def login(login_data: UsuarioLogin, db: Session = Depends(get_db)):
             detail="Usuario inactivo",
         )
     limpiar_fallos(clave)
-    token_data = {"usuario_id": db_usuario.id, "correo": db_usuario.correo}
+    token_data = {
+        "usuario_id": db_usuario.id,
+        "correo": db_usuario.correo,
+        "password_version": db_usuario.password_version,
+    }
     access_token = create_access_token(token_data, expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
     refresh_token = create_refresh_token(db, db_usuario)
     db_usuario.ultimo_acceso = datetime.now(timezone.utc)
@@ -88,7 +92,11 @@ def refresh(request: RefreshRequest, db: Session = Depends(get_db)):
     registro.usado_en = datetime.now(timezone.utc)
 
     new_refresh = create_refresh_token(db, db_usuario)
-    token_data = {"usuario_id": db_usuario.id, "correo": db_usuario.correo}
+    token_data = {
+        "usuario_id": db_usuario.id,
+        "correo": db_usuario.correo,
+        "password_version": db_usuario.password_version,
+    }
     new_access = create_access_token(token_data, expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
     db.commit()
     return Token(access_token=new_access, refresh_token=new_refresh)
@@ -106,7 +114,7 @@ def get_current_user_endpoint(current_user: UsuarioModel = Depends(get_current_u
     return current_user
 
 
-@router.post("/auth/cambio-contrasena", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/auth/cambio-contrasena", response_model=Token)
 def cambiar_contrasena(
     data: CambioContrasenaRequest,
     db: Session = Depends(get_db),
@@ -120,6 +128,9 @@ def cambiar_contrasena(
     current_user.contrasena_hash = hash_password(data.nueva_contrasena)
     current_user.debe_cambiar_contrasena = False
     current_user.ultimo_acceso = datetime.now(timezone.utc)
+    # Incrementa password_version: invalida de inmediato (server-side) todos los access
+    # tokens emitidos antes del cambio, sin esperar a que expiren (ver deps.get_current_user).
+    current_user.password_version = (current_user.password_version or 0) + 1
     # Revoca todos los refresh tokens activos: el resto de sesiones debe volver a iniciar sesión.
     db.execute(
         update(RefreshTokenModel)
@@ -129,5 +140,15 @@ def cambiar_contrasena(
         )
         .values(revocado=True)
     )
+    db.flush()  # asegura que password_version esté actualizado antes de leerlo
+    # Emite un par de tokens nuevos con la versión ya incrementada: la sesión que acaba
+    # de cambiar la contraseña no tiene que volver a iniciar sesión.
+    new_refresh = create_refresh_token(db, current_user)
+    token_data = {
+        "usuario_id": current_user.id,
+        "correo": current_user.correo,
+        "password_version": current_user.password_version,
+    }
+    new_access = create_access_token(token_data, expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
     db.commit()
-    return None
+    return Token(access_token=new_access, refresh_token=new_refresh)

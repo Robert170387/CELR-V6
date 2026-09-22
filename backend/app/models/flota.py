@@ -54,6 +54,10 @@ class Usuario(Base):
     conductor_id = Column(Integer, ForeignKey("conductores.id"), index=True)
     activo = Column(Boolean, nullable=False, default=True)
     debe_cambiar_contrasena = Column(Boolean, nullable=False, default=False)
+    # Version del hash de contrasena. Cada vez que se cambia la contrasena se
+    # incrementa (o re-hashea alternando) y los access tokens emitidos con una
+    # version anterior quedan invalidos de inmediato (ver deps.get_current_user).
+    password_version = Column(Integer, nullable=False, server_default="1", default=1)
     ultimo_acceso = Column(DateTime(timezone=True))
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

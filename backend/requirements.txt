@@ -14,3 +14,5 @@ pytesseract
 Pillow
 # Adaptador OCR en la nube (opcional): activar con OCR_ENGINE=google
 # google-cloud-vision
+# Requerido por starlette.testclient (TestClient) en scripts de prueba
+httpx2

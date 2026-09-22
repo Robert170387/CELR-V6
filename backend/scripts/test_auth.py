@@ -213,12 +213,19 @@ def test_cambio_contrasena_y_rate_limit():
     assert r.status_code == 400, f"contrasena actual incorrecta deberia ser 400: {r.status_code}"
     print("  cambio con contrasena actual incorrecta -> 400: PASADO")
 
-    # Cambio correcto -> 204 y el flag se limpia
+    # Cambio correcto -> 200 + tokens nuevos, y el flag se limpia
     r = client.post("/api/v1/auth/cambio-contrasena", json={"contrasena_actual": "old123", "nueva_contrasena": "new456"}, headers=headers)
-    assert r.status_code == 204, f"cambio correcto deberia ser 204: {r.status_code} {r.text}"
+    assert r.status_code == 200, f"cambio correcto deberia ser 200: {r.status_code} {r.text}"
+    nuevo_body = r.json()
+    nuevo_access = nuevo_body["access_token"]
+    assert nuevo_access and nuevo_access != token, "El access token nuevo debe ser distinto al usado para el cambio"
+    print("  cambio correcto -> 200 + tokens nuevos: PASADO")
+
+    # El access token viejo (emitido antes del cambio) queda invalidado de inmediato:
+    # password_version se incrementó (revocación server-side, sin esperar expiración).
     r = client.get("/api/v1/auth/me", headers=headers)
-    assert r.json()["debe_cambiar_contrasena"] is False, "debe_cambiar_contrasena deberia ser False tras el cambio"
-    print("  cambio correcto -> 204 y flag=False: PASADO")
+    assert r.status_code == 401, f"access viejo deberia quedar invalidado: {r.status_code}"
+    print("  /auth/me con access viejo tras cambio -> 401: PASADO")
 
     # Login con la nueva contrasena
     r = client.post("/api/v1/auth/login", json={"correo": "ratelimit@celr.com", "contrasena": "new456"})
