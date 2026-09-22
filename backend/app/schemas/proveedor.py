@@ -11,6 +11,7 @@ class ProveedorCreate(BaseModel):
     telefono: Optional[str] = Field(None, max_length=20)
     correo: Optional[str] = Field(None, max_length=100)
     ciudad: Optional[str] = Field(None, max_length=80)
+    ciudad_municipio_id: Optional[int] = None
     banco: Optional[str] = Field(None, max_length=80)
     tipo_cuenta: Optional[str] = Field(None, max_length=30)
     numero_cuenta: Optional[str] = Field(None, max_length=50)
@@ -43,6 +44,7 @@ class ProveedorUpdate(BaseModel):
     telefono: Optional[str] = Field(None, max_length=20)
     correo: Optional[str] = Field(None, max_length=100)
     ciudad: Optional[str] = Field(None, max_length=80)
+    ciudad_municipio_id: Optional[int] = None
     banco: Optional[str] = Field(None, max_length=80)
     tipo_cuenta: Optional[str] = Field(None, max_length=30)
     numero_cuenta: Optional[str] = Field(None, max_length=50)
@@ -76,6 +78,7 @@ class ProveedorResponse(BaseModel):
     telefono: Optional[str]
     correo: Optional[str]
     ciudad: Optional[str]
+    ciudad_municipio_id: Optional[int]
     banco: Optional[str]
     tipo_cuenta: Optional[str]
     numero_cuenta: Optional[str]

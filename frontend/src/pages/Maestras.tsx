@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Truck, Users, Building2, Plus, Loader2, AlertCircle, CheckCircle2, XCircle, Pencil, Trash2, X, type LucideIcon } from 'lucide-react'
 import { vehiculosAPI, conductoresAPI, proveedoresAPI } from '@/api'
+import Pagination from '@/components/Pagination'
+import SelectorCiudad from '@/components/SelectorCiudad'
 import { extraerMensajeError } from '@/utils/format'
 
 interface Campo {
@@ -12,6 +14,7 @@ interface Campo {
   numeric?: boolean
   placeholder?: string
   options?: { value: string; label: string }[]
+  kind?: 'ciudad'
 }
 
 interface Columna {
@@ -22,7 +25,7 @@ interface Columna {
 interface EntityPanelProps {
   titulo: string
   icono: LucideIcon
-  listar: () => Promise<{ data: any[] }>
+  listar: (params?: { skip?: number; limit?: number }) => Promise<{ data: any[]; total: number }>
   crear: (data: any) => Promise<{ data: any }>
   actualizar: (id: number, data: any) => Promise<{ data: any }>
   eliminar: (id: number) => Promise<any>
@@ -33,7 +36,10 @@ interface EntityPanelProps {
 }
 
 function EntityPanel({ titulo, icono: Icono, listar, crear, actualizar, eliminar, columnas, campos, inicial, campoIdentificador }: EntityPanelProps) {
+  const PAGE_SIZE = 100
   const [items, setItems] = useState<any[]>([])
+  const [totalItems, setTotalItems] = useState(0)
+  const [pagina, setPagina] = useState(1)
   const [form, setForm] = useState<Record<string, string>>(inicial)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -54,8 +60,9 @@ function EntityPanel({ titulo, icono: Icono, listar, crear, actualizar, eliminar
     setLoading(true)
     setError('')
     try {
-      const res = await listar()
+      const res = await listar({ skip: (pagina - 1) * PAGE_SIZE, limit: PAGE_SIZE })
       setItems(res.data)
+      setTotalItems(res.total)
     } catch (err) {
       setError(extraerMensajeError(err))
     } finally {
@@ -65,7 +72,7 @@ function EntityPanel({ titulo, icono: Icono, listar, crear, actualizar, eliminar
 
   useEffect(() => {
     cargar()
-  }, [])
+  }, [pagina])
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value })
@@ -80,6 +87,12 @@ function EntityPanel({ titulo, icono: Icono, listar, crear, actualizar, eliminar
         continue
       }
       payload[campo.name] = campo.numeric ? Number(raw) : raw
+    }
+    for (const campo of campos) {
+      if (campo.kind === 'ciudad') {
+        const muniRaw = values[`${campo.name}_municipio_id`]
+        payload[`${campo.name}_municipio_id`] = muniRaw ? Number(muniRaw) : null
+      }
     }
     return { payload }
   }
@@ -113,6 +126,12 @@ function EntityPanel({ titulo, icono: Icono, listar, crear, actualizar, eliminar
     for (const campo of campos) {
       const v = item[campo.name]
       values[campo.name] = v === null || v === undefined ? '' : String(v)
+    }
+    for (const campo of campos) {
+      if (campo.kind === 'ciudad') {
+        const muni = item[`${campo.name}_municipio_id`]
+        values[`${campo.name}_municipio_id`] = muni === null || muni === undefined ? '' : String(muni)
+      }
     }
     setEditando(item)
     setEditForm(values)
@@ -193,7 +212,14 @@ function EntityPanel({ titulo, icono: Icono, listar, crear, actualizar, eliminar
                 {campo.label}
                 {campo.required && <span className="text-danger-500"> *</span>}
               </label>
-              {campo.type === 'select' ? (
+              {campo.kind === 'ciudad' ? (
+                <SelectorCiudad
+                  value={form[`${campo.name}_municipio_id`] || ''}
+                  onChange={(id, texto) =>
+                    setForm({ ...form, [campo.name]: texto, [`${campo.name}_municipio_id`]: id })
+                  }
+                />
+              ) : campo.type === 'select' ? (
                 <select
                   name={campo.name}
                   value={form[campo.name] || ''}
@@ -234,7 +260,7 @@ function EntityPanel({ titulo, icono: Icono, listar, crear, actualizar, eliminar
       <div className="card-truck">
         <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
           <Icono size={20} />
-          {titulo} registrados ({items.length})
+          {titulo} registrados ({totalItems})
         </h3>
 
         {loading ? (
@@ -296,9 +322,9 @@ function EntityPanel({ titulo, icono: Icono, listar, crear, actualizar, eliminar
                       </div>
                     </td>
                   </tr>
-                ))}
-              </tbody>
+                ))}  </tbody>
             </table>
+            <Pagination total={totalItems} page={pagina} pageSize={PAGE_SIZE} onPage={setPagina} />
           </div>
         )}
       </div>
@@ -331,21 +357,28 @@ function EntityPanel({ titulo, icono: Icono, listar, crear, actualizar, eliminar
               {campos.map((campo) => (
                 <div key={campo.name}>
                   <label className="block text-sm font-medium text-slate-300 mb-1">{campo.label}</label>
-                  {campo.type === 'select' ? (
-                    <select
-                      name={campo.name}
-                      value={editForm[campo.name] || ''}
-                      onChange={handleEditChange}
-                      className="input-truck"
-                    >
-                      <option value="">Selecciona...</option>
-                      {campo.options?.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
+{campo.kind === 'ciudad' ? (
+                <SelectorCiudad
+                  value={editForm[`${campo.name}_municipio_id`] || ''}
+                  onChange={(id, texto) =>
+                    setEditForm({ ...editForm, [campo.name]: texto, [`${campo.name}_municipio_id`]: id })
+                  }
+                />
+              ) : campo.type === 'select' ? (
+                <select
+                  name={campo.name}
+                  value={editForm[campo.name] || ''}
+                  onChange={handleEditChange}
+                  className="input-truck"
+                >
+                  <option value="">Selecciona...</option>
+                  {campo.options?.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
                     <input
                       type={campo.type || 'text'}
                       name={campo.name}
@@ -567,9 +600,9 @@ const Maestras: React.FC = () => {
             { name: 'nit', label: 'NIT' },
             { name: 'tipo', label: 'Tipo', type: 'select', options: TIPOS_PROVEEDOR, required: true },
             { name: 'telefono', label: 'Teléfono' },
-            { name: 'ciudad', label: 'Ciudad' },
+            { name: 'ciudad', label: 'Ciudad', kind: 'ciudad' },
           ]}
-          inicial={{ razon_social: '', nit: '', tipo: '', telefono: '', ciudad: '' }}
+          inicial={{ razon_social: '', nit: '', tipo: '', telefono: '', ciudad: '', ciudad_municipio_id: '' }}
         />
       )}
     </div>

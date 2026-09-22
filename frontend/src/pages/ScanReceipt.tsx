@@ -144,7 +144,6 @@ const ScanReceipt: React.FC = () => {
         asumido_por: 'empresa',
         responsable_pago: 'conductor',
         tiene_num_factura: Boolean(form.num_factura),
-        hash_comprobante: scanResult.hash_comprobante,
       }
       if (form.cantidad_galones) payload.cantidad_galones = form.cantidad_galones
       if (form.km_registro) payload.km_registro = form.km_registro

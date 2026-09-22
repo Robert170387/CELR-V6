@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { Package, Truck, Plus, Loader2, AlertCircle, CheckCircle2, XCircle, Pencil, Trash2, X } from 'lucide-react'
 import { viajesAPI, vehiculosAPI, conductoresAPI, gastosAPI } from '@/api'
+import Pagination from '@/components/Pagination'
+import SelectorCiudad from '@/components/SelectorCiudad'
 import { extraerMensajeError, esErrorDeRed, formatearMoneda } from '@/utils/format'
 import { encolarOffline } from '@/utils/offlineStore'
 import { useAuth } from '@/context/AuthContext'
@@ -29,6 +31,8 @@ interface Viaje {
   conductor_id: number
   origen: string
   destino: string
+  origen_municipio_id?: number | null
+  destino_municipio_id?: number | null
   fecha_salida: string
   estado: string
   flete_neto: string | null
@@ -51,11 +55,12 @@ const estadoItems = [
 ]
 
 const initialForm = {
-  numero_odt: '',
   vehiculo_id: '',
   conductor_id: '',
   origen: '',
+  origen_municipio_id: '',
   destino: '',
+  destino_municipio_id: '',
   fecha_salida: '',
   valor_flete_manifiesto: '',
   retefuente_valor: '',
@@ -77,11 +82,14 @@ const camposViaje = [
 ] as const
 
 const Viajes: React.FC = () => {
+  const PAGE_SIZE = 100
   const { user } = useAuth()
   const esConductor = user?.rol === 'conductor'
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>([])
   const [conductores, setConductores] = useState<Conductor[]>([])
   const [viajes, setViajes] = useState<Viaje[]>([])
+  const [totalViajes, setTotalViajes] = useState(0)
+  const [pagina, setPagina] = useState(1)
   const [gastos, setGastos] = useState<GastoResumen[]>([])
   const [form, setForm] = useState(initialForm)
   const [loading, setLoading] = useState(true)
@@ -106,7 +114,7 @@ const Viajes: React.FC = () => {
       const viajesPromise =
         esConductor && user?.conductor_id
           ? viajesAPI.porConductor(user.conductor_id)
-          : viajesAPI.listar(false)
+          : viajesAPI.listar(false, { skip: (pagina - 1) * PAGE_SIZE, limit: PAGE_SIZE })
       const [viajesRes, vehiculosRes, conductoresRes, gastosRes] = await Promise.all([
         viajesPromise,
         vehiculosAPI.listar(),
@@ -114,6 +122,7 @@ const Viajes: React.FC = () => {
         gastosAPI.listar(),
       ])
       setViajes(viajesRes.data)
+      setTotalViajes(viajesRes.total)
       setGastos(gastosRes.data)
       setVehiculos(vehiculosRes.data)
       setConductores(conductoresRes.data)
@@ -132,19 +141,27 @@ const Viajes: React.FC = () => {
 
   useEffect(() => {
     cargarDatos()
-  }, [user?.id])
+  }, [user?.id, pagina])
 
   const recargarViajes = async () => {
     const viajesRes = esConductor && user?.conductor_id
       ? await viajesAPI.porConductor(user.conductor_id)
-      : await viajesAPI.listar(false)
+      : await viajesAPI.listar(false, { skip: (pagina - 1) * PAGE_SIZE, limit: PAGE_SIZE })
     setViajes(viajesRes.data)
+    setTotalViajes(viajesRes.total)
     const gastosRes = await gastosAPI.listar()
     setGastos(gastosRes.data)
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value })
+  }
+
+  const setCiudad = (textoKey: 'origen' | 'destino', muniKey: 'origen_municipio_id' | 'destino_municipio_id') => (
+    municipioId: string,
+    texto: string
+  ) => {
+    setForm((f) => ({ ...f, [muniKey]: municipioId, [textoKey]: texto }))
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -155,13 +172,18 @@ const Viajes: React.FC = () => {
       setFormError('Selecciona un vehículo y un conductor')
       return
     }
+    if (!form.origen_municipio_id || !form.destino_municipio_id) {
+      setFormError('Selecciona municipio de origen y destino')
+      return
+    }
     setSubmitting(true)
     const payload: Record<string, any> = {
-      numero_odt: form.numero_odt.trim(),
       vehiculo_id: Number(form.vehiculo_id),
       conductor_id: Number(form.conductor_id),
       origen: form.origen.trim(),
+      origen_municipio_id: Number(form.origen_municipio_id),
       destino: form.destino.trim(),
+      destino_municipio_id: Number(form.destino_municipio_id),
       fecha_salida: form.fecha_salida,
       estado: form.estado,
     }
@@ -169,11 +191,12 @@ const Viajes: React.FC = () => {
     if (form.retefuente_valor) payload.retefuente_valor = form.retefuente_valor
     if (form.reteica_valor) payload.reteica_valor = form.reteica_valor
     try {
-      await viajesAPI.crear(payload)
-      setSuccess(`ODT ${form.numero_odt.trim()} creada correctamente`)
+      const creado = await viajesAPI.crear(payload)
+      setSuccess(`ODT ${creado.data.numero_odt} creada correctamente`)
       setForm((f) => ({ ...initialForm, vehiculo_id: String(f.vehiculo_id), conductor_id: String(f.conductor_id) }))
-      const viajesRes = await viajesAPI.listar(false)
+      const viajesRes = await viajesAPI.listar(false, { skip: (pagina - 1) * PAGE_SIZE, limit: PAGE_SIZE })
       setViajes(viajesRes.data)
+      setTotalViajes(viajesRes.total)
     } catch (err: any) {
       if (esErrorDeRed(err)) {
         try {
@@ -199,6 +222,8 @@ const Viajes: React.FC = () => {
       const v = (viaje as any)[campo]
       values[campo] = v === null || v === undefined ? '' : String(v)
     }
+    values.origen_municipio_id = viaje.origen_municipio_id ? String(viaje.origen_municipio_id) : ''
+    values.destino_municipio_id = viaje.destino_municipio_id ? String(viaje.destino_municipio_id) : ''
     setEditando(viaje)
     setEditForm(values)
     setEditError('')
@@ -229,6 +254,8 @@ const Viajes: React.FC = () => {
     if (editForm.valor_flete_manifiesto) payload.valor_flete_manifiesto = Number(editForm.valor_flete_manifiesto)
     if (editForm.retefuente_valor) payload.retefuente_valor = Number(editForm.retefuente_valor)
     if (editForm.reteica_valor) payload.reteica_valor = Number(editForm.reteica_valor)
+    payload.origen_municipio_id = editForm.origen_municipio_id ? Number(editForm.origen_municipio_id) : null
+    payload.destino_municipio_id = editForm.destino_municipio_id ? Number(editForm.destino_municipio_id) : null
 
     setEditandoSubmit(true)
     try {
@@ -293,6 +320,22 @@ const Viajes: React.FC = () => {
             </option>
           ))}
         </select>
+      )
+    }
+    if (campo === 'origen') {
+      return (
+        <SelectorCiudad
+          value={editForm.origen_municipio_id || ''}
+          onChange={(id, texto) => setEditForm((f) => ({ ...f, origen_municipio_id: id, origen: texto }))}
+        />
+      )
+    }
+    if (campo === 'destino') {
+      return (
+        <SelectorCiudad
+          value={editForm.destino_municipio_id || ''}
+          onChange={(id, texto) => setEditForm((f) => ({ ...f, destino_municipio_id: id, destino: texto }))}
+        />
       )
     }
     const esNumero = ['valor_flete_manifiesto', 'retefuente_valor', 'reteica_valor'].includes(campo)
@@ -368,19 +411,6 @@ const margenDe = (viaje: Viaje): number | null => {
 
         <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Número ODT</label>
-            <input
-              type="text"
-              name="numero_odt"
-              value={form.numero_odt}
-              onChange={handleChange}
-              className="input-truck"
-              placeholder="ODT-2026-001"
-              required
-            />
-          </div>
-
-          <div>
             <label className="block text-sm font-medium text-slate-300 mb-1">Vehículo</label>
             <select
               name="vehiculo_id"
@@ -418,27 +448,17 @@ const margenDe = (viaje: Viaje): number | null => {
 
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-1">Origen</label>
-            <input
-              type="text"
-              name="origen"
-              value={form.origen}
-              onChange={handleChange}
-              className="input-truck"
-              placeholder="Bogotá"
-              required
+            <SelectorCiudad
+              value={form.origen_municipio_id}
+              onChange={setCiudad('origen', 'origen_municipio_id')}
             />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-1">Destino</label>
-            <input
-              type="text"
-              name="destino"
-              value={form.destino}
-              onChange={handleChange}
-              className="input-truck"
-              placeholder="Medellín"
-              required
+            <SelectorCiudad
+              value={form.destino_municipio_id}
+              onChange={setCiudad('destino', 'destino_municipio_id')}
             />
           </div>
 
@@ -630,6 +650,7 @@ const margenDe = (viaje: Viaje): number | null => {
                 })}
               </tbody>
             </table>
+            {!esConductor && <Pagination total={totalViajes} page={pagina} pageSize={PAGE_SIZE} onPage={setPagina} />}
           </div>
         )}
       </div>

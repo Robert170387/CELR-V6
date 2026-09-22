@@ -15,18 +15,21 @@ Reglas clave:
   captura.
 """
 
-import hashlib
 import logging
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, Optional
-from uuid import uuid4
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.operaciones import Gasto
+from app.services.hashing import (
+    normalized_emisor,
+    compute_logical_hash,
+    compute_unique_hash,
+)
 from app.services.ocr_engines import get_ocr_engine
 from app.services.ocr_parser import extract_receipt_fields
 
@@ -46,44 +49,8 @@ _EMPTY_FIELDS: Dict[str, Any] = {
 
 
 # ---------------------------------------------------------------------------
-# Hashing
+# Hashing (extraído a app/services/hashing.py; acá solo se re-exporta)
 # ---------------------------------------------------------------------------
-
-
-def _normalize_emisor(nit: Optional[str], proveedor: Optional[str]) -> Optional[str]:
-    if nit:
-        digits = "".join(char for char in nit if char.isdigit())
-        if digits:
-            return digits
-    if proveedor:
-        normalized = "".join(
-            char for char in proveedor.lower() if char.isalnum()
-        )
-        return normalized or None
-    return None
-
-
-def compute_logical_hash(
-    nit: Optional[str] = None,
-    proveedor: Optional[str] = None,
-    fecha: Optional[date] = None,
-    monto: Optional[Decimal] = None,
-) -> Optional[str]:
-    """MD5(NIT/Proveedor + Fecha + Monto). None si falta algún componente."""
-    emisor = _normalize_emisor(nit, proveedor)
-    if not emisor or fecha is None or monto is None:
-        return None
-    if Decimal(monto) <= 0:
-        return None
-
-    monto_normalizado = Decimal(monto).quantize(Decimal("0.01"))
-    key = f"{emisor}|{fecha.isoformat()}|{monto_normalizado}"
-    return hashlib.md5(key.encode("utf-8")).hexdigest()
-
-
-def compute_unique_hash() -> str:
-    """Hash irrepetible para recibos sin datos legibles (no deduplicables)."""
-    return hashlib.md5(f"sin-ocr|{uuid4().hex}".encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -193,9 +160,30 @@ class OCRService:
             logger.exception("OCR falló de forma inesperada; se crea gasto pendiente")
             result = _empty_result()
 
+        # Hash canónico SERVER-SIDE (misma regla que la captura manual):
+        # con factura MD5(NIT+NumFactura+Fecha+Monto); sin factura MD5(NIT+Fecha+Monto+viaje_id).
+        # Si el OCR no extrajo monto, se conserva un hash único irrepetible.
+        from app.services.hashing import compute_gasto_hash
+
+        num_factura = result.get("num_factura")
+        fecha_efectiva = result.get("fecha_gasto") or date.today()
+        valor = result.get("valor_total")
+        if valor is not None:
+            hash_comprobante = compute_gasto_hash(
+                num_factura=num_factura,
+                fecha=fecha_efectiva,
+                monto=Decimal(str(valor)),
+                viaje_id=viaje_id,
+                proveedor_nit=result.get("nit"),
+                proveedor_nombre=result.get("proveedor"),
+            )
+        else:
+            hash_comprobante = result["hash_comprobante"]
+        result["hash_comprobante"] = hash_comprobante
+
         existing = (
             self.db.query(Gasto)
-            .filter(Gasto.hash_comprobante == result["hash_comprobante"])
+            .filter(Gasto.hash_comprobante == hash_comprobante)
             .first()
         )
         if existing:
@@ -222,7 +210,7 @@ class OCRService:
                 if result["km_registro"] is not None
                 else None
             ),
-            hash_comprobante=result["hash_comprobante"],
+            hash_comprobante=hash_comprobante,
             datos_ocr_json=result["datos_ocr_json"],
             estado_validacion="observado" if valor_total is not None else "pendiente",
             tiene_num_factura=bool(result["num_factura"]),

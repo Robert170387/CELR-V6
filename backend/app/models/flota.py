@@ -37,6 +37,7 @@ class Conductor(Base):
     categoria_licencia = Column(String(10))
     vencimiento_licencia = Column(Date)
     estado = Column(String(20), nullable=False, default='activo')
+    porcentaje_comision_default = Column(Numeric(5,2))
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -52,11 +53,25 @@ class Usuario(Base):
     rol = Column(String(20), nullable=False, default='conductor')
     conductor_id = Column(Integer, ForeignKey("conductores.id"), index=True)
     activo = Column(Boolean, nullable=False, default=True)
+    debe_cambiar_contrasena = Column(Boolean, nullable=False, default=False)
     ultimo_acceso = Column(DateTime(timezone=True))
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
     conductor = relationship("Conductor")
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
+    token_hash = Column(String(64), unique=True, nullable=False, index=True)
+    expira_en = Column(DateTime(timezone=True), nullable=False)
+    revocado = Column(Boolean, nullable=False, default=False)
+    creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    usado_en = Column(DateTime(timezone=True))
+
+    usuario = relationship("Usuario")
 
 class ConductorVehiculo(Base):
     __tablename__ = "conductor_vehiculo"

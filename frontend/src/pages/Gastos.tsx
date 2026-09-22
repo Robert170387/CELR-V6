@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { Fuel, Plus, Loader2, AlertCircle, CheckCircle2, XCircle, Pencil, Trash2, X } from 'lucide-react'
 import { gastosAPI, viajesAPI, vehiculosAPI } from '@/api'
+import Pagination from '@/components/Pagination'
+import SelectorCiudad from '@/components/SelectorCiudad'
 import { extraerMensajeError, formatearMoneda, esErrorDeRed } from '@/utils/format'
 import { encolarOffline } from '@/utils/offlineStore'
 
@@ -27,14 +29,16 @@ interface Gasto {
   valor_total: string
   asumido_por: string
   estado_validacion: string
+  cantidad_galones: string | null
+  precio_por_galon: string | null
+  km_registro: string | null
+  ciudad_abastecimiento: string | null
+  ciudad_abastecimiento_municipio_id?: number | null
 }
 
 const categorias = ['combustible', 'peaje', 'viaticos', 'mantenimiento', 'lavado', 'parqueadero', 'otros']
 const asumidoPor = ['empresa', 'owner', 'conductor']
 const responsablePago = ['conductor', 'empresa', 'tarjeta_empresa']
-
-const generarHash = () =>
-  Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('')
 
 const hoy = () => new Date().toISOString().slice(0, 10)
 
@@ -48,10 +52,14 @@ const initialForm = () => ({
   valor_total: '',
   asumido_por: 'empresa',
   responsable_pago: 'conductor',
-  hash_comprobante: generarHash(),
+  cantidad_galones: '',
+  precio_por_galon: '',
+  km_registro: '',
+  ciudad_abastecimiento: '',
+  ciudad_abastecimiento_municipio_id: '',
 })
 
-const camposEdicion: { name: string; label: string }[] = [
+const camposBaseEdicion: { name: string; label: string }[] = [
   { name: 'viaje_id', label: 'Viaje / ODT' },
   { name: 'vehiculo_id', label: 'Vehículo' },
   { name: 'categoria', label: 'Categoría' },
@@ -63,8 +71,26 @@ const camposEdicion: { name: string; label: string }[] = [
   { name: 'descripcion', label: 'Descripción' },
 ]
 
+const camposCombustibleEdicion: { name: string; label: string }[] = [
+  { name: 'cantidad_galones', label: 'Cantidad de galones' },
+  { name: 'precio_por_galon', label: 'Precio por galón' },
+  { name: 'km_registro', label: 'Kilometraje del vehículo' },
+  { name: 'ciudad_abastecimiento', label: 'Ciudad de abastecimiento' },
+]
+
+const camposEdicionPara = (categoria: string) => {
+  const base = [...camposBaseEdicion]
+  if (categoria !== 'combustible') return base
+  const indiceValor = base.findIndex((c) => c.name === 'valor_total')
+  base.splice(indiceValor + 1, 0, ...camposCombustibleEdicion)
+  return base
+}
+
 const Gastos: React.FC = () => {
+  const PAGE_SIZE = 100
   const [gastos, setGastos] = useState<Gasto[]>([])
+  const [totalGastos, setTotalGastos] = useState(0)
+  const [pagina, setPagina] = useState(1)
   const [viajes, setViajes] = useState<Viaje[]>([])
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>([])
   const [form, setForm] = useState(initialForm)
@@ -88,7 +114,7 @@ const Gastos: React.FC = () => {
     setListError('')
     try {
       const [gastosRes, viajesRes, vehiculosRes] = await Promise.all([
-        gastosAPI.listar(),
+        gastosAPI.listar({ skip: (pagina - 1) * PAGE_SIZE, limit: PAGE_SIZE }),
         viajesAPI.listar(false),
         vehiculosAPI.listar(),
       ])
@@ -96,6 +122,7 @@ const Gastos: React.FC = () => {
         (v) => v.estado !== 'liquidado' && v.estado !== 'cancelado'
       )
       setGastos(gastosRes.data)
+      setTotalGastos(gastosRes.total)
       setViajes(activos)
       setVehiculos(vehiculosRes.data)
       setForm((f) => ({
@@ -112,11 +139,12 @@ const Gastos: React.FC = () => {
 
   useEffect(() => {
     cargarDatos()
-  }, [])
+  }, [pagina])
 
   const recargarGastos = async () => {
-    const gastosRes = await gastosAPI.listar()
+    const gastosRes = await gastosAPI.listar({ skip: (pagina - 1) * PAGE_SIZE, limit: PAGE_SIZE })
     setGastos(gastosRes.data)
+    setTotalGastos(gastosRes.total)
   }
 
 const SIN_VIAJE = 'gasto_fijo'
@@ -126,7 +154,18 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
     setForm({ ...form, viaje_id: e.target.value, categoria: 'mantenimiento' })
     return
   }
-  setForm({ ...form, [e.target.name]: e.target.value })
+  const cambios: Record<string, string> = { [e.target.name]: e.target.value }
+  if (
+    form.categoria === 'combustible' &&
+    (e.target.name === 'cantidad_galones' || e.target.name === 'precio_por_galon')
+  ) {
+    const gal = e.target.name === 'cantidad_galones' ? Number(e.target.value) : Number(form.cantidad_galones)
+    const ppg = e.target.name === 'precio_por_galon' ? Number(e.target.value) : Number(form.precio_por_galon)
+    if (gal > 0 && ppg > 0) {
+      cambios.valor_total = (Math.round(gal * ppg * 100) / 100).toFixed(2)
+    }
+  }
+  setForm({ ...form, ...cambios })
 }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -148,7 +187,6 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
       asumido_por: form.asumido_por,
       responsable_pago: form.responsable_pago,
       tiene_num_factura: Boolean(form.num_factura),
-      hash_comprobante: form.hash_comprobante,
     }
     if (form.viaje_id && form.viaje_id !== SIN_VIAJE) {
       payload.viaje_id = Number(form.viaje_id)
@@ -156,6 +194,15 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
     if (!payload.viaje_id) {
       payload.categoria = 'mantenimiento'
       payload.descripcion = form.descripcion || 'Gasto fijo / mantenimiento de vehículo'
+    }
+    if (payload.categoria === 'combustible') {
+      payload.cantidad_galones = form.cantidad_galones ? Number(form.cantidad_galones) : undefined
+      payload.precio_por_galon = form.precio_por_galon ? Number(form.precio_por_galon) : undefined
+      payload.km_registro = form.km_registro ? Number(form.km_registro) : undefined
+      payload.ciudad_abastecimiento = form.ciudad_abastecimiento || undefined
+      if (form.ciudad_abastecimiento_municipio_id) {
+        payload.ciudad_abastecimiento_municipio_id = Number(form.ciudad_abastecimiento_municipio_id)
+      }
     }
     try {
       const res = await gastosAPI.registrar(payload)
@@ -184,10 +231,13 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
 
   const abrirEdicion = (gasto: Gasto) => {
     const values: Record<string, string> = {}
-    for (const campo of camposEdicion) {
+    for (const campo of camposEdicionPara(gasto.categoria)) {
       const v = (gasto as any)[campo.name]
       values[campo.name] = v === null || v === undefined ? '' : String(v)
     }
+    values.ciudad_abastecimiento_municipio_id = gasto.ciudad_abastecimiento_municipio_id
+      ? String(gasto.ciudad_abastecimiento_municipio_id)
+      : ''
     setEditando(gasto)
     setEditForm(values)
     setEditError('')
@@ -217,6 +267,15 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
     if (editForm.num_factura) payload.num_factura = editForm.num_factura
     if (editForm.asumido_por) payload.asumido_por = editForm.asumido_por
     if (editForm.responsable_pago) payload.responsable_pago = editForm.responsable_pago
+    if (editForm.categoria === 'combustible') {
+      if (editForm.cantidad_galones) payload.cantidad_galones = Number(editForm.cantidad_galones)
+      if (editForm.precio_por_galon) payload.precio_por_galon = Number(editForm.precio_por_galon)
+      if (editForm.km_registro) payload.km_registro = Number(editForm.km_registro)
+      if (editForm.ciudad_abastecimiento) payload.ciudad_abastecimiento = editForm.ciudad_abastecimiento
+      payload.ciudad_abastecimiento_municipio_id = editForm.ciudad_abastecimiento_municipio_id
+        ? Number(editForm.ciudad_abastecimiento_municipio_id)
+        : null
+    }
 
     setEditandoSubmit(true)
     try {
@@ -250,7 +309,14 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
   const numeroOdt = (id: number) => viajes.find((v) => v.id === id)?.numero_odt || `ODT #${id}`
   const placaVehiculo = (id: number) => vehiculos.find((v) => v.id === id)?.placa || `Vehículo #${id}`
 
-  const renderCampoEdicion = (campo: (typeof camposEdicion)[number]) => {
+  const patronesNumericosEdicion: Record<string, { step: string; min: string }> = {
+    valor_total: { step: '0.01', min: '0' },
+    cantidad_galones: { step: '0.001', min: '0.001' },
+    precio_por_galon: { step: '0.01', min: '0.01' },
+    km_registro: { step: '1', min: '0' },
+  }
+
+  const renderCampoEdicion = (campo: { name: string; label: string }) => {
     if (campo.name === 'viaje_id') {
       return (
         <select name={campo.name} value={editForm[campo.name] || ''} onChange={handleEditChange} className="input-truck">
@@ -320,17 +386,27 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
         />
       )
     }
-    const esNumero = campo.name === 'valor_total'
+    if (campo.name === 'ciudad_abastecimiento') {
+      return (
+        <SelectorCiudad
+          value={editForm.ciudad_abastecimiento_municipio_id || ''}
+          onChange={(id, texto) =>
+            setEditForm((f) => ({ ...f, ciudad_abastecimiento_municipio_id: id, ciudad_abastecimiento: texto }))
+          }
+        />
+      )
+    }
+    const patron = patronesNumericosEdicion[campo.name]
     return (
       <input
-        type={campo.name === 'fecha_gasto' ? 'date' : esNumero ? 'number' : 'text'}
+        type={campo.name === 'fecha_gasto' ? 'date' : patron ? 'number' : 'text'}
         name={campo.name}
         value={editForm[campo.name] || ''}
         onChange={handleEditChange}
         className="input-truck"
-        min={esNumero ? '0' : undefined}
-        step={esNumero ? '0.01' : undefined}
-        required={campo.name === 'fecha_gasto' || esNumero}
+        min={patron ? patron.min : undefined}
+        step={patron ? patron.step : undefined}
+        required={campo.name === 'fecha_gasto' || !!patron}
       />
     )
   }
@@ -431,6 +507,66 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
             />
           </div>
 
+          {form.categoria === 'combustible' && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Cantidad de galones</label>
+                <input
+                  type="number"
+                  name="cantidad_galones"
+                  value={form.cantidad_galones}
+                  onChange={handleChange}
+                  className="input-truck"
+                  placeholder="50.5"
+                  min="0.001"
+                  step="0.001"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Precio por galón</label>
+                <input
+                  type="number"
+                  name="precio_por_galon"
+                  value={form.precio_por_galon}
+                  onChange={handleChange}
+                  className="input-truck"
+                  placeholder="12000"
+                  min="0.01"
+                  step="0.01"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Kilometraje del vehículo</label>
+                <input
+                  type="number"
+                  name="km_registro"
+                  value={form.km_registro}
+                  onChange={handleChange}
+                  className="input-truck"
+                  placeholder="125000"
+                  min="0"
+                  step="1"
+                  required
+                />
+                <p className="text-xs text-slate-500 mt-1">Actualizará el km actual del vehículo si es mayor.</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Ciudad de abastecimiento</label>
+                <SelectorCiudad
+                  value={form.ciudad_abastecimiento_municipio_id}
+                  onChange={(id, texto) =>
+                    setForm((f) => ({ ...f, ciudad_abastecimiento_municipio_id: id, ciudad_abastecimiento: texto }))
+                  }
+                />
+              </div>
+            </>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-1">N° Factura</label>
             <input type="text" name="num_factura" value={form.num_factura} onChange={handleChange} className="input-truck" placeholder="FACT-000123" />
@@ -456,11 +592,6 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
                 </option>
               ))}
             </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Hash comprobante</label>
-            <input type="text" name="hash_comprobante" value={form.hash_comprobante} onChange={handleChange} className="input-truck font-mono text-xs" required />
           </div>
 
           <div className="md:col-span-2 lg:col-span-3">
@@ -561,6 +692,7 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
                 ))}
               </tbody>
             </table>
+            <Pagination total={totalGastos} page={pagina} pageSize={PAGE_SIZE} onPage={setPagina} />
           </div>
         )}
       </div>
@@ -590,7 +722,7 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
             )}
 
             <form onSubmit={guardarEdicion} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {camposEdicion.map((campo) => (
+              {camposEdicionPara(editForm.categoria || '').map((campo) => (
                 <div key={campo.name} className={campo.name === 'descripcion' ? 'md:col-span-2' : ''}>
                   <label className="block text-sm font-medium text-slate-300 mb-1">{campo.label}</label>
                   {renderCampoEdicion(campo)}

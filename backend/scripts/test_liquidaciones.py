@@ -32,10 +32,8 @@ def seed(db: Session):
 
 
 def create_test_viaje(db: Session, veh_id: int, cond_id: int):
-    print("\n=== Crear viaje de prueba ===")
-    odt_num = f"ODT-LIQ-{datetime.utcnow().strftime('%H%M%S%f')}"
+    print("\n=== Crear viaje de prueba (numero_odt autogenerado) ===")
     viaje = ViajeODT(
-        numero_odt=odt_num,
         vehiculo_id=veh_id,
         conductor_id=cond_id,
         origen="Bogota",
@@ -157,11 +155,16 @@ def main():
     try:
         admin = db.query(UsuarioModel).filter(UsuarioModel.correo == "test@celr.com").first()
         assert admin is not None, "Se requiere el usuario admin test@celr.com (ejecuta test_auth.py o seed.py)"
+        admin2 = seed_admin2(db)
         veh_id, cond_id = seed(db)
         viaje = create_test_viaje(db, veh_id, cond_id)
         create_test_gastos(db, viaje.id, veh_id, cond_id)
         create_test_ingreso(db, viaje.id)
         test_calcular_liquidacion(db, viaje.id)
+        viaje2 = create_test_viaje_extra(db, veh_id, cond_id)
+        test_cerrar_comision_incorrecta(db, viaje2, cond_id, veh_id, admin)
+        viaje3 = create_test_viaje_extra(db, veh_id, cond_id)
+        test_aprobar_liquidacion(db, viaje3, cond_id, veh_id, admin, admin2)
         test_cerrar_liquidacion(db, viaje.id, cond_id, veh_id, admin)
         print("\n[TODOS LOS TESTS DE LIQUIDACIONES PASARON]")
     except Exception as e:
@@ -170,6 +173,118 @@ def main():
         traceback.print_exc()
     finally:
         db.close()
+
+
+def seed_admin2(db: Session) -> UsuarioModel:
+    from app.core.security import hash_password
+    u = db.query(UsuarioModel).filter(UsuarioModel.correo == "admin2@celr.com").first()
+    if not u:
+        u = UsuarioModel(
+            correo="admin2@celr.com",
+            contrasena_hash=hash_password("admin123"),
+            rol="admin",
+            activo=True,
+        )
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+        print(f"Admin2 creado: id={u.id}")
+    return u
+
+
+def create_test_viaje_extra(db: Session, veh_id: int, cond_id: int) -> ViajeODT:
+    from datetime import date
+    viaje = ViajeODT(
+        vehiculo_id=veh_id,
+        conductor_id=cond_id,
+        origen="Bogota",
+        destino="Cali",
+        fecha_salida=date(2026, 9, 17),
+        valor_flete_manifiesto=Decimal("1000000.00"),
+        retefuente_valor=Decimal("100000.00"),
+        reteica_valor=Decimal("50000.00"),
+        estado="en_curso",
+    )
+    db.add(viaje)
+    db.commit()
+    db.refresh(viaje)
+    return viaje
+
+
+def test_cerrar_comision_incorrecta(db: Session, viaje: ViajeODT, cond_id: int, veh_id: int, current_user: UsuarioModel):
+    print("\n=== Test 3: cerrar con comisión alterada -> 409 ===")
+    from fastapi import HTTPException
+    from app.api.v1.endpoints.liquidaciones import cerrar_liquidacion
+
+    liq_data = LiquidacionCreate(
+        conductor_id=cond_id,
+        vehiculo_id=veh_id,
+        periodo_inicio=date(2026, 9, 1),
+        periodo_fin=date(2026, 9, 17),
+        comision_flete=Decimal("99999.00"),
+        porcentaje_comision=Decimal("10.00"),
+        anticipos_entregados=Decimal("0.00"),
+        gastos_a_cargo_conductor=Decimal("0.00"),
+        viajes_ids=[viaje.id],
+        estado="borrador",
+    )
+    try:
+        cerrar_liquidacion(viaje.id, liq_data, db, current_user)
+    except HTTPException as e:
+        assert e.status_code == 409, f"esperaba 409, obtuve {e.status_code}"
+        print(f"  409 obtenido: {e.detail}")
+        db.rollback()
+        return
+    raise AssertionError("Deberia haber lanzado 409 por comision incorrecta")
+
+
+def test_aprobar_liquidacion(db: Session, viaje: ViajeODT, cond_id: int, veh_id: int, admin: UsuarioModel, admin2: UsuarioModel):
+    print("\n=== Test 4: aprobar liquidación (403 self / 200 otro admin) ===")
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    client = TestClient(app)
+    r = client.post("/api/v1/auth/login", json={"correo": "test@celr.com", "contrasena": "admin123"})
+    headers = {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+    r = client.post(
+        f"/api/v1/liquidaciones/cerrar/{viaje.id}",
+        json={
+            "conductor_id": cond_id,
+            "vehiculo_id": veh_id,
+            "periodo_inicio": "2026-09-01",
+            "periodo_fin": "2026-09-17",
+            "comision_flete": 85000,
+            "porcentaje_comision": 10,
+            "anticipos_entregados": 0,
+            "gastos_a_cargo_conductor": 0,
+            "viajes_ids": [viaje.id],
+            "estado": "borrador",
+        },
+        headers=headers,
+    )
+    assert r.status_code == 200, f"cerrar fallo: {r.status_code} {r.text}"
+    liq_id = r.json()["liquidacion_id"]
+    print(f"  liquidación creada id={liq_id}")
+
+    r = client.post(f"/api/v1/liquidaciones/{liq_id}/aprobar", headers=headers)
+    assert r.status_code == 403, f"auto-aprobación deberia ser 403: {r.status_code} {r.text}"
+    print(f"  aprobar por quien creó -> 403: {r.json()['detail']}")
+
+    r = client.post("/api/v1/auth/login", json={"correo": "admin2@celr.com", "contrasena": "admin123"})
+    headers2 = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    r = client.post(f"/api/v1/liquidaciones/{liq_id}/aprobar", headers=headers2)
+    assert r.status_code == 200, f"aprobar con otro admin fallo: {r.status_code} {r.text}"
+    assert r.json()["aprobado_por"] == admin2.id
+    print(f"  aprobar por otro admin -> 200, aprobado_por={r.json()['aprobado_por']}")
+
+    r = client.post(f"/api/v1/liquidaciones/{liq_id}/aprobar", headers=headers2)
+    assert r.status_code == 400, f"aprobar dos veces deberia ser 400: {r.status_code}"
+    print(f"  aprobar dos veces -> 400: {r.json()['detail']}")
+
+    r = client.post("/api/v1/liquidaciones/999999/aprobar", headers=headers2)
+    assert r.status_code == 404, f"aprobar inexistente deberia ser 404: {r.status_code}"
+    print(f"  aprobar inexistente -> 404: PASADO")
 
 
 if __name__ == "__main__":

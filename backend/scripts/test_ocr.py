@@ -157,12 +157,10 @@ def login(client) -> str:
     return r.json()["access_token"]
 
 
-def cleanup(db, numero_odt: str):
-    viaje = db.query(ViajeODT).filter(ViajeODT.numero_odt == numero_odt).first()
-    if viaje:
-        db.query(Gasto).filter(Gasto.viaje_id == viaje.id).delete()
-        db.query(ViajeODT).filter(ViajeODT.id == viaje.id).delete()
-        db.commit()
+def cleanup(db, viaje_id: int):
+    db.query(Gasto).filter(Gasto.viaje_id == viaje_id).delete()
+    db.query(ViajeODT).filter(ViajeODT.id == viaje_id).delete()
+    db.commit()
 
 
 def test_scan_receipt_security():
@@ -203,12 +201,10 @@ def test_scan_receipt_duplicate_detection():
     print("\n=== Test 7: scan-receipt - anti-duplicado por hash lógico ===")
     client = TestClient(app)
     db = SessionLocal()
-    numero_odt = "ODT-OCR-LOGICO-001"
     try:
         vehicle_id, cond_id = seed_db(db)
-        cleanup(db, numero_odt)
         odt = ViajeODT(
-            numero_odt=numero_odt, vehiculo_id=vehicle_id, conductor_id=cond_id,
+            vehiculo_id=vehicle_id, conductor_id=cond_id,
             origen="Bogota", destino="Medellin", fecha_salida=date.today(), estado="en_curso",
         )
         db.add(odt)
@@ -219,9 +215,19 @@ def test_scan_receipt_duplicate_detection():
         token = login(client)
         headers = {"Authorization": f"Bearer {token}"}
 
-        # Simula el OCR: mismo recibo -> mismo hash lógico, aunque los bytes difieran.
+        # Simula el OCR: mismo recibo -> mismo hash canónico, aunque los bytes difieran.
+        from app.services.hashing import compute_gasto_hash
+
         hash_logico = compute_logical_hash(
             nit="9001234567", proveedor=None, fecha=date(2026, 9, 16), monto=Decimal("238000")
+        )
+        esperado = compute_gasto_hash(
+            num_factura="FE-000123",
+            fecha=date(2026, 9, 16),
+            monto=Decimal("238000"),
+            viaje_id=viaje_id,
+            proveedor_nit="9001234567",
+            proveedor_nombre="EL PRADO",
         )
         resultado_fijo = {
             "hash_comprobante": hash_logico,
@@ -247,7 +253,7 @@ def test_scan_receipt_duplicate_detection():
                     headers=headers,
                 )
             assert r1.status_code == 200, f"Primera llamada: {r1.status_code} {r1.text}"
-            assert r1.json()["hash_comprobante"] == hash_logico
+            assert r1.json()["hash_comprobante"] == esperado
             assert r1.json()["valor_total"] == 238000.0
             gasto_id = r1.json()["gasto_id"]
             print(f"  Primera llamada -> 200, gasto_id={gasto_id}")
@@ -264,10 +270,10 @@ def test_scan_receipt_duplicate_detection():
 
             db.refresh(odt)
             stored = db.query(Gasto).filter(Gasto.id == gasto_id).first()
-            assert stored is not None and stored.hash_comprobante == hash_logico
+            assert stored is not None and stored.hash_comprobante == esperado
         finally:
             ocr_service.process_receipt_image = original
-            cleanup(db, numero_odt)
+            cleanup(db, viaje_id)
     finally:
         db.close()
 
@@ -276,12 +282,10 @@ def test_scan_receipt_manual_fallback():
     print("\n=== Test 8: scan-receipt - recibo ilegible crea Gasto pendiente (200) ===")
     client = TestClient(app)
     db = SessionLocal()
-    numero_odt = "ODT-OCR-PENDIENTE-001"
     try:
         vehicle_id, cond_id = seed_db(db)
-        cleanup(db, numero_odt)
         odt = ViajeODT(
-            numero_odt=numero_odt, vehiculo_id=vehicle_id, conductor_id=cond_id,
+            vehiculo_id=vehicle_id, conductor_id=cond_id,
             origen="Bogota", destino="Medellin", fecha_salida=date.today(), estado="en_curso",
         )
         db.add(odt)
@@ -306,7 +310,7 @@ def test_scan_receipt_manual_fallback():
         assert stored.valor_total == Decimal("0")
         print(f"  Recibo ilegible -> 200, gasto_id={body['gasto_id']}, estado=pendiente")
     finally:
-        cleanup(db, numero_odt)
+        cleanup(db, odt.id)
         db.close()
 
 

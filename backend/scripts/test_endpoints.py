@@ -29,10 +29,8 @@ def seed(db: Session):
 
 
 def test_create_viaje(db: Session, veh_id: int, cond_id: int):
-    print("\n=== Test 1: Crear viaje de prueba ===")
-    odt_num = f"ODT-TEST-{datetime.utcnow().strftime('%H%M%S%f')}"
+    print("\n=== Test 1: Crear viaje de prueba (numero_odt autogenerado) ===")
     viaje = ViajeODT(
-        numero_odt=odt_num,
         vehiculo_id=veh_id,
         conductor_id=cond_id,
         origen="Bogota",
@@ -44,6 +42,7 @@ def test_create_viaje(db: Session, veh_id: int, cond_id: int):
     db.commit()
     db.refresh(viaje)
     print(f"Viaje creado: id={viaje.id}, numero_odt={viaje.numero_odt}")
+    assert viaje.numero_odt and viaje.numero_odt.startswith("ODT-"), "numero_odt no autogenerado"
     return viaje
 
 

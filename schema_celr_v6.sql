@@ -44,6 +44,7 @@ CREATE TABLE conductores (
     vencimiento_licencia DATE,
     estado              VARCHAR(20)     NOT NULL DEFAULT 'activo'
                         CHECK (estado IN ('activo', 'inactivo', 'vacaciones', 'incapacitado')),
+    porcentaje_comision_default NUMERIC(5,2),
     creado_en           TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     actualizado_en      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
@@ -57,8 +58,9 @@ CREATE TABLE usuarios (
     correo              VARCHAR(100)    NOT NULL UNIQUE,
     contrasena_hash     TEXT            NOT NULL,
     rol                 VARCHAR(20)     NOT NULL DEFAULT 'conductor'
-                        CHECK (rol IN ('admin', 'conductor', 'visualizador')),
+                        CHECK (rol IN ('admin', 'operador', 'contador', 'supervisor', 'cliente', 'conductor')),
     conductor_id        INTEGER         REFERENCES conductores(id) ON DELETE SET NULL,
+    debe_cambiar_contrasena BOOLEAN      NOT NULL DEFAULT FALSE,
     activo              BOOLEAN         NOT NULL DEFAULT TRUE,
     ultimo_acceso       TIMESTAMPTZ,
     creado_en           TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -67,6 +69,22 @@ CREATE TABLE usuarios (
 CREATE INDEX idx_usuarios_correo ON usuarios(correo);
 CREATE INDEX idx_usuarios_conductor ON usuarios(conductor_id);
 COMMENT ON TABLE usuarios IS 'Cuentas de acceso al sistema. Separado de conductores para mayor flexibilidad de roles.';
+
+-- =============================================================
+-- TABLA: refresh_tokens (rotación de refresh JWT, B2)
+-- =============================================================
+CREATE TABLE refresh_tokens (
+    id                  SERIAL          PRIMARY KEY,
+    usuario_id          INTEGER         NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    token_hash          VARCHAR(64)     NOT NULL UNIQUE,
+    jti                 VARCHAR(64),
+    expira_en           TIMESTAMPTZ     NOT NULL,
+    revocado_en         TIMESTAMPTZ,
+    reemplazado_por     INTEGER         REFERENCES refresh_tokens(id),
+    creado_en           TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_refresh_tokens_usuario ON refresh_tokens(usuario_id);
+CREATE INDEX idx_refresh_tokens_expira ON refresh_tokens(expira_en);
 
 -- =============================================================
 -- TABLA: conductor_vehiculo
@@ -145,12 +163,15 @@ CREATE TABLE viajes_odt (
     observaciones       TEXT,
     creado_en           TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     actualizado_en      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
-    creado_por          INTEGER         REFERENCES usuarios(id)
+    creado_por          INTEGER         REFERENCES usuarios(id),
+    eliminado_en        TIMESTAMPTZ,
+    eliminado_por       INTEGER         REFERENCES usuarios(id)
 );
 CREATE INDEX idx_viajes_vehiculo ON viajes_odt(vehiculo_id);
 CREATE INDEX idx_viajes_conductor ON viajes_odt(conductor_id);
 CREATE INDEX idx_viajes_fecha ON viajes_odt(fecha_salida);
 CREATE INDEX idx_viajes_estado ON viajes_odt(estado);
+CREATE INDEX idx_viajes_eliminado ON viajes_odt(eliminado_en);
 COMMENT ON TABLE viajes_odt IS 'Orden de Trabajo (ODT). Centro de costo por viaje. Todo gasto e ingreso se asocia aquí.';
 
 -- =============================================================
@@ -181,7 +202,7 @@ CREATE TABLE gastos (
     descripcion         TEXT,
     num_factura         VARCHAR(50),
     fecha_gasto         DATE            NOT NULL,
-    valor_total         NUMERIC(14,2)   NOT NULL CHECK (valor_total > 0),
+    valor_total         NUMERIC(14,2)   NOT NULL CHECK (valor_total >= 0),
     km_registro         NUMERIC(12,2),
     cantidad_galones    NUMERIC(8,3),
     precio_por_galon    NUMERIC(10,2),
@@ -200,7 +221,9 @@ CREATE TABLE gastos (
     motivo_rechazo      TEXT,
     reportado_por       INTEGER         REFERENCES usuarios(id),
     creado_en           TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
-    actualizado_en      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+    actualizado_en      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    eliminado_en        TIMESTAMPTZ,
+    eliminado_por       INTEGER         REFERENCES usuarios(id)
 );
 CREATE INDEX idx_gastos_viaje ON gastos(viaje_id);
 CREATE INDEX idx_gastos_vehiculo ON gastos(vehiculo_id);
@@ -208,6 +231,7 @@ CREATE INDEX idx_gastos_categoria ON gastos(categoria);
 CREATE INDEX idx_gastos_fecha ON gastos(fecha_gasto);
 CREATE INDEX idx_gastos_estado ON gastos(estado_validacion);
 CREATE INDEX idx_gastos_hash ON gastos(hash_comprobante);
+CREATE INDEX idx_gastos_eliminado ON gastos(eliminado_en);
 COMMENT ON TABLE gastos IS 'Registro de gastos operativos. Incluye hash anti-duplicados, responsabilidad de pago y foto del comprobante.';
 COMMENT ON COLUMN gastos.responsable_pago IS '¿Quién realizó el pago físicamente? (conductor, empresa, tarjeta_empresa)';
 COMMENT ON COLUMN gastos.asumido_por IS '¿Quién absorbe el costo contablemente? (empresa/Owner vs conductor)';
@@ -235,11 +259,14 @@ CREATE TABLE ingresos (
                         CHECK (estado_pago IN ('pendiente', 'recibido', 'en_disputa')),
     observaciones       TEXT,
     creado_por          INTEGER         REFERENCES usuarios(id),
-    creado_en           TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+    creado_en           TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    eliminado_en        TIMESTAMPTZ,
+    eliminado_por       INTEGER         REFERENCES usuarios(id)
 );
 CREATE INDEX idx_ingresos_viaje ON ingresos(viaje_id);
 CREATE INDEX idx_ingresos_vehiculo ON ingresos(vehiculo_id);
 CREATE INDEX idx_ingresos_tipo ON ingresos(tipo_ingreso);
+CREATE INDEX idx_ingresos_eliminado ON ingresos(eliminado_en);
 COMMENT ON TABLE ingresos IS 'Ingresos por viaje: fletes, anticipos, cumplidos y compensaciones.';
 
 -- =============================================================
@@ -277,10 +304,13 @@ CREATE TABLE liquidaciones_conductores (
     creado_por          INTEGER         REFERENCES usuarios(id),
     aprobado_por        INTEGER         REFERENCES usuarios(id),
     creado_en           TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
-    actualizado_en      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+    actualizado_en      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    eliminado_en        TIMESTAMPTZ,
+    eliminado_por       INTEGER         REFERENCES usuarios(id)
 );
 CREATE INDEX idx_liquidaciones_conductor ON liquidaciones_conductores(conductor_id);
 CREATE INDEX idx_liquidaciones_periodo ON liquidaciones_conductores(periodo_inicio, periodo_fin);
+CREATE INDEX idx_liquidaciones_eliminado ON liquidaciones_conductores(eliminado_en);
 COMMENT ON TABLE liquidaciones_conductores IS 'Módulo de Compensados. Liquidación periódica: comisiones, anticipos, viáticos, descuentos y saldo neto.';
 COMMENT ON COLUMN liquidaciones_conductores.saldo_neto IS 'Positivo: empresa debe al conductor. Negativo: conductor debe a la empresa.';
 

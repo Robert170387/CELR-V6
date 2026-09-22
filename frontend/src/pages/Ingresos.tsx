@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Wallet, Plus, Loader2, AlertCircle, CheckCircle2, XCircle, Pencil, Trash2, X } from 'lucide-react'
 import { ingresosAPI, viajesAPI } from '@/api'
+import Pagination from '@/components/Pagination'
 import { extraerMensajeError, formatearMoneda } from '@/utils/format'
 
 interface Viaje {
@@ -50,7 +51,10 @@ const inicial = () => ({
 })
 
 const Ingresos: React.FC = () => {
+  const PAGE_SIZE = 100
   const [ingresos, setIngresos] = useState<Ingreso[]>([])
+  const [totalIngresos, setTotalIngresos] = useState(0)
+  const [pagina, setPagina] = useState(1)
   const [viajes, setViajes] = useState<Viaje[]>([])
   const [form, setForm] = useState(inicial)
   const [loading, setLoading] = useState(true)
@@ -73,10 +77,11 @@ const Ingresos: React.FC = () => {
     setListError('')
     try {
       const [ingresosRes, viajesRes] = await Promise.all([
-        ingresosAPI.listar(),
+        ingresosAPI.listar(undefined, { skip: (pagina - 1) * PAGE_SIZE, limit: PAGE_SIZE }),
         viajesAPI.listar(false),
       ])
       setIngresos(ingresosRes.data)
+      setTotalIngresos(ingresosRes.total)
       setViajes(viajesRes.data)
       setForm((f) => ({
         ...f,
@@ -91,11 +96,12 @@ const Ingresos: React.FC = () => {
 
   useEffect(() => {
     cargarDatos()
-  }, [])
+  }, [pagina])
 
   const recargarIngresos = async () => {
-    const res = await ingresosAPI.listar()
+    const res = await ingresosAPI.listar(undefined, { skip: (pagina - 1) * PAGE_SIZE, limit: PAGE_SIZE })
     setIngresos(res.data)
+    setTotalIngresos(res.total)
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -385,6 +391,7 @@ const Ingresos: React.FC = () => {
                 ))}
               </tbody>
             </table>
+            <Pagination total={totalIngresos} page={pagina} pageSize={PAGE_SIZE} onPage={setPagina} />
           </div>
         )}
       </div>

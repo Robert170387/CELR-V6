@@ -58,9 +58,11 @@ def main():
         creados["cond"].append(cond["id"])
         prov = post("/api/v1/proveedores", {"razon_social": f"Proveedor {suf}", "nit": f"9.{suf}.5", "tipo": "combustible", "ciudad": "Bogota"}, headers)
         creados["prov"].append(prov["id"])
-        viaje = post("/api/v1/viajes", {"numero_odt": f"CRUD-{suf}", "vehiculo_id": veh["id"], "conductor_id": cond["id"], "origen": "Bogota", "destino": "Medellin", "fecha_salida": "2026-09-16", "estado": "en_curso"}, headers)
+        viaje = post("/api/v1/viajes", {"vehiculo_id": veh["id"], "conductor_id": cond["id"], "origen": "Bogota", "destino": "Medellin", "fecha_salida": "2026-09-16", "estado": "en_curso"}, headers)
         creados["viaje"].append(viaje["id"])
-        gasto = post("/api/v1/gastos", {"viaje_id": viaje["id"], "vehiculo_id": veh["id"], "categoria": "combustible", "fecha_gasto": "2026-09-16", "valor_total": 200000, "hash_comprobante": f"h-{suf}"}, headers)
+        assert viaje["numero_odt"], "numero_odt debe ser autogenerado por el servidor"
+        creados["viaje"].append(viaje["id"])
+        gasto = post("/api/v1/gastos", {"viaje_id": viaje["id"], "vehiculo_id": veh["id"], "categoria": "combustible", "fecha_gasto": "2026-09-16", "valor_total": 200000}, headers)
         creados["gasto"].append(gasto["id"])
         ingreso = post("/api/v1/ingresos", {"viaje_id": viaje["id"], "vehiculo_id": veh["id"], "tipo_ingreso": "anticipo", "fecha_ingreso": "2026-09-16", "valor": 100000}, headers)
         creados["ingreso"].append(ingreso["id"])
@@ -119,17 +121,19 @@ def main():
         print("  [OK ] DELETE de ingreso, gasto y viaje")
 
         print("\n=== Test 7: DELETE rechazado por FK / inexistente ===")
-        viaje2 = post("/api/v1/viajes", {"numero_odt": f"CRUD2-{suf}", "vehiculo_id": veh["id"], "conductor_id": cond["id"], "origen": "Bogota", "destino": "Pasto", "fecha_salida": "2026-09-16", "estado": "en_curso"}, headers)
+        viaje2 = post("/api/v1/viajes", {"vehiculo_id": veh["id"], "conductor_id": cond["id"], "origen": "Bogota", "destino": "Pasto", "fecha_salida": "2026-09-16", "estado": "en_curso"}, headers)
         creados["viaje"].append(viaje2["id"])
-        gasto2 = post("/api/v1/gastos", {"viaje_id": viaje2["id"], "vehiculo_id": veh["id"], "categoria": "peaje", "fecha_gasto": "2026-09-16", "valor_total": 50000, "hash_comprobante": f"h2-{suf}"}, headers)
+        gasto2 = post("/api/v1/gastos", {"viaje_id": viaje2["id"], "vehiculo_id": veh["id"], "categoria": "peaje", "fecha_gasto": "2026-09-16", "valor_total": 50000}, headers)
         creados["gasto"].append(gasto2["id"])
-        delete(f"/api/v1/viajes/{viaje2['id']}", headers, esperado=409)
+        # Soft delete: el viaje con gastos asociados YA se elimina (borrado lógico).
+        delete(f"/api/v1/viajes/{viaje2['id']}", headers, esperado=204)
+        print("  [OK ] DELETE viaje con gasto asociado -> 204 (soft delete)")
         delete(f"/api/v1/vehiculos/{veh['id']}", headers, esperado=409)
         delete(f"/api/v1/conductores/{cond['id']}", headers, esperado=409)
         delete("/api/v1/proveedores/999999", headers, esperado=404)
         delete("/api/v1/vehiculos/999999", headers, esperado=404)
         delete("/api/v1/ingresos/999999", headers, esperado=404)
-        print("  [OK ] 409 por asociaciones, 404 inexistente")
+        print("  [OK ] 409 por asociaciones (maestras), 404 inexistente")
 
         # --- Conductor rol (escapar a escrito? solo lectura) ---
         print("\n=== Test 8: RBAC conductor no puede escribir maestras ===")

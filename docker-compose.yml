@@ -32,13 +32,11 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # init_db / migraciones / seed son idempotentes: seguros al re-ejecutar
+    # Esquema gestionado por Alembic (baseline idempotente). seed es idempotente.
     command: >
-      sh -c "python init_db.py &&
-             python scripts/migrate_roles.py &&
-             python scripts/migrate_gastos_valor.py &&
-             python scripts/migrate_gastos_viaje_nullable.py &&
+      sh -c "python -m alembic upgrade head &&
              python seed.py &&
+             python scripts/seed_municipios.py &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000"
     restart: unless-stopped
 

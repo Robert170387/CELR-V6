@@ -17,11 +17,11 @@ class GastoCreate(BaseModel):
     cantidad_galones: Optional[Decimal] = Field(None, ge=0)
     precio_por_galon: Optional[Decimal] = Field(None, ge=0)
     ciudad_abastecimiento: Optional[str] = Field(None, max_length=80)
+    ciudad_abastecimiento_municipio_id: Optional[int] = None
     responsable_pago: str = Field(default="conductor", max_length=50)
     asumido_por: str = Field(default="empresa", max_length=50)
     tarjeta_id: Optional[int] = None
     tiene_num_factura: bool = False
-    hash_comprobante: str = Field(..., max_length=64)
     url_imagen: Optional[str] = None
     datos_ocr_json: Optional[dict] = None
     estado_validacion: Optional[str] = Field("pendiente", max_length=20)
@@ -54,11 +54,11 @@ class GastoUpdate(BaseModel):
     cantidad_galones: Optional[Decimal] = Field(None, ge=0)
     precio_por_galon: Optional[Decimal] = Field(None, ge=0)
     ciudad_abastecimiento: Optional[str] = Field(None, max_length=80)
+    ciudad_abastecimiento_municipio_id: Optional[int] = None
     responsable_pago: Optional[str] = Field(None, max_length=50)
     asumido_por: Optional[str] = Field(None, max_length=50)
     tarjeta_id: Optional[int] = None
     tiene_num_factura: Optional[bool] = None
-    hash_comprobante: Optional[str] = Field(None, max_length=64)
     url_imagen: Optional[str] = None
     datos_ocr_json: Optional[dict] = None
     estado_validacion: Optional[str] = Field(None, max_length=20)
@@ -92,6 +92,7 @@ class GastoResponse(BaseModel):
     cantidad_galones: Optional[Decimal]
     precio_por_galon: Optional[Decimal]
     ciudad_abastecimiento: Optional[str]
+    ciudad_abastecimiento_municipio_id: Optional[int]
     responsable_pago: str
     asumido_por: str
     tarjeta_id: Optional[int]

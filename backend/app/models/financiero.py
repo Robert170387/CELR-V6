@@ -19,6 +19,8 @@ class Ingreso(Base):
     observaciones = Column(Text)
     creado_por = Column(Integer, ForeignKey("usuarios.id"))
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    eliminado_en = Column(DateTime(timezone=True))
+    eliminado_por = Column(Integer, ForeignKey("usuarios.id"))
 
 class LiquidacionConductor(Base):
     __tablename__ = "liquidaciones_conductores"
@@ -54,6 +56,8 @@ class LiquidacionConductor(Base):
     aprobado_por = Column(Integer, ForeignKey("usuarios.id"))
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    eliminado_en = Column(DateTime(timezone=True))
+    eliminado_por = Column(Integer, ForeignKey("usuarios.id"))
 
 class MovimientoBancario(Base):
     __tablename__ = "movimientos_bancarios"
@@ -78,6 +82,7 @@ class FlypassTransaccion(Base):
     fecha_transaccion = Column(DateTime(timezone=True), nullable=False, index=True)
     nombre_peaje = Column(String(100))
     ciudad_peaje = Column(String(80))
+    ciudad_peaje_municipio_id = Column(Integer, ForeignKey("municipios.id"), index=True)
     valor = Column(Numeric(10,2), nullable=False)
     num_transaccion_flypass = Column(String(50), unique=True)
     viaje_id = Column(Integer, ForeignKey("viajes_odt.id"))

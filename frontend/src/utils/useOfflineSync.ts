@@ -1,25 +1,45 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getUnsyncedTransactions, syncPendingTransactions, PendingTransaction } from '@/utils/offlineStore'
+import {
+  getUnsyncedTransactions,
+  getDiscardedTransactions,
+  syncPendingTransactions,
+  clearDiscardedTransactions,
+  PendingTransaction,
+  DiscardedTransaction,
+} from '@/utils/offlineStore'
 
 interface UseOfflineSyncReturn {
   isOnline: boolean
   isSyncing: boolean
   pendingCount: number
+  pendingAuthCount: number
+  discardedCount: number
   pendientes: PendingTransaction[]
+  descartados: DiscardedTransaction[]
   sync: () => Promise<void>
   refresh: () => Promise<void>
+  limpiarDescartados: () => Promise<void>
 }
 
 export function useOfflineSync(): UseOfflineSyncReturn {
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [isSyncing, setIsSyncing] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
+  const [pendingAuthCount, setPendingAuthCount] = useState(0)
+  const [discardedCount, setDiscardedCount] = useState(0)
   const [pendientes, setPendientes] = useState<PendingTransaction[]>([])
+  const [descartados, setDescartados] = useState<DiscardedTransaction[]>([])
 
   const refresh = useCallback(async () => {
-    const unsynced = await getUnsyncedTransactions()
+    const [unsynced, desc] = await Promise.all([
+      getUnsyncedTransactions(),
+      getDiscardedTransactions(),
+    ])
     setPendientes(unsynced)
     setPendingCount(unsynced.length)
+    setPendingAuthCount(unsynced.filter((tx) => tx.estado === 'pending_auth').length)
+    setDescartados(desc)
+    setDiscardedCount(desc.length)
   }, [])
 
   const sync = useCallback(async () => {
@@ -36,6 +56,11 @@ export function useOfflineSync(): UseOfflineSyncReturn {
     }
   }, [isSyncing, refresh])
 
+  const limpiarDescartados = useCallback(async () => {
+    await clearDiscardedTransactions()
+    void refresh()
+  }, [refresh])
+
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true)
@@ -47,6 +72,7 @@ export function useOfflineSync(): UseOfflineSyncReturn {
     window.addEventListener('offline', handleOffline)
     window.addEventListener('celr:sync', sync)
     window.addEventListener('celr:queued', refresh)
+    window.addEventListener('celr:discarded', refresh)
 
     void refresh()
 
@@ -55,8 +81,20 @@ export function useOfflineSync(): UseOfflineSyncReturn {
       window.removeEventListener('offline', handleOffline)
       window.removeEventListener('celr:sync', sync)
       window.removeEventListener('celr:queued', refresh)
+      window.removeEventListener('celr:discarded', refresh)
     }
   }, [sync, refresh])
 
-  return { isOnline, isSyncing, pendingCount, pendientes, sync, refresh }
+  return {
+    isOnline,
+    isSyncing,
+    pendingCount,
+    pendingAuthCount,
+    discardedCount,
+    pendientes,
+    descartados,
+    sync,
+    refresh,
+    limpiarDescartados,
+  }
 }

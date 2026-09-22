@@ -26,6 +26,8 @@ def upsert_usuario(db) -> Usuario:
             contrasena_hash=hash_password(ADMIN_PASSWORD),
             rol="admin",
             activo=True,
+            # Primer arranque: obliga a cambiar la contraseña al primer login.
+            debe_cambiar_contrasena=True,
         )
         db.add(usuario)
     else:

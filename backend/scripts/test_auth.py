@@ -121,6 +121,129 @@ def test_get_me(token: str):
     print(f"  Token invalido -> 401: PASADO")
 
 
+def test_refresh_flow():
+    print("\n=== Test 5: POST /api/v1/auth/refresh (rotacion) ===")
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.models.flota import RefreshToken
+    client = TestClient(app)
+
+    r = client.post("/api/v1/auth/login", json={"correo": "test@celr.com", "contrasena": "admin123"})
+    assert r.status_code == 200
+    body = r.json()
+    access_1 = body["access_token"]
+    refresh_1 = body["refresh_token"]
+    assert refresh_1, "No se emitió refresh token"
+    print(f"  login -> refresh_token='{refresh_1[:20]}...': PASADO")
+
+    # Rotación: el mismo refresh NO se puede reutilizar después de usarlo.
+    r = client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_1})
+    assert r.status_code == 200, f"refresh fallo: {r.status_code} {r.json()}"
+    body2 = r.json()
+    assert body2["access_token"] != access_1, "El nuevo access token debe ser distinto"
+    assert body2["refresh_token"] != refresh_1, "El refresh token debe rotarse"
+    refresh_2 = body2["refresh_token"]
+    print(f"  refresh -> nuevo par emitido, access distinto: PASADO")
+
+    # El token usado ya no sirve (replay/revocado).
+    r = client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_1})
+    assert r.status_code == 401, f"Refresh reutilizado deberia ser 401: {r.status_code}"
+    print(f"  reuso de refresh revocado -> 401: PASADO")
+
+    # El nuevo refresh sí funciona con /auth/me.
+    r2 = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {body2['access_token']}"})
+    assert r2.status_code == 200, f"me con access renovado fallo: {r2.status_code}"
+    print(f"  /auth/me con access renovado -> 200: PASADO")
+
+    # Logout revoca el refresh vigente.
+    r = client.post("/api/v1/auth/logout", json={"refresh_token": refresh_2})
+    assert r.status_code == 204, f"logout fallo: {r.status_code} {r.json()}"
+    print(f"  logout -> 204: PASADO")
+    r = client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_2})
+    assert r.status_code == 401, f"Refresh tras logout deberia ser 401: {r.status_code}"
+    print(f"  refresh tras logout -> 401: PASADO")
+
+    # Refresh inexistente / inventado (longitud válida)
+    r = client.post("/api/v1/auth/refresh", json={"refresh_token": "token_inventado_abcdefghijklmnopqrstuvwxyz012345"})
+    assert r.status_code == 401, f"Refresh inventado deberia ser 401: {r.status_code}"
+    print(f"  refresh inventado -> 401: PASADO")
+
+
+def test_cambio_contrasena_y_rate_limit():
+    print("\n=== Test 6: cambio de contraseña + rate limit de login ===")
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.db.session import SessionLocal as SL
+
+    db = SL()
+    try:
+        # Usuario dedicado para el flujo de cambio de contraseña
+        rate_user = db.query(UsuarioModel).filter(UsuarioModel.correo == "ratelimit@celr.com").first()
+        if not rate_user:
+            rate_user = UsuarioModel(
+                correo="ratelimit@celr.com",
+                contrasena_hash=hash_password("old123"),
+                rol="admin",
+                activo=True,
+                debe_cambiar_contrasena=True,
+            )
+            db.add(rate_user)
+            db.commit()
+            db.refresh(rate_user)
+    finally:
+        db.close()
+
+    client = TestClient(app)
+
+    # Login con password inicial (permite entrar aunque deba cambiar la contrasena)
+    r = client.post("/api/v1/auth/login", json={"correo": "ratelimit@celr.com", "contrasena": "old123"})
+    assert r.status_code == 200, f"login inicial fallo: {r.status_code} {r.json()}"
+    token = r.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    print("  login con contrasena inicial -> 200: PASADO")
+
+    # /auth/me debe reportar debe_cambiar_contrasena=True
+    r = client.get("/api/v1/auth/me", headers=headers)
+    assert r.status_code == 200
+    assert r.json()["debe_cambiar_contrasena"] is True, "debe_cambiar_contrasena deberia ser True"
+    print("  /auth/me -> debe_cambiar_contrasena=True: PASADO")
+
+    # Contrasena actual incorrecta -> 400
+    r = client.post("/api/v1/auth/cambio-contrasena", json={"contrasena_actual": "wrongold", "nueva_contrasena": "new456"}, headers=headers)
+    assert r.status_code == 400, f"contrasena actual incorrecta deberia ser 400: {r.status_code}"
+    print("  cambio con contrasena actual incorrecta -> 400: PASADO")
+
+    # Cambio correcto -> 204 y el flag se limpia
+    r = client.post("/api/v1/auth/cambio-contrasena", json={"contrasena_actual": "old123", "nueva_contrasena": "new456"}, headers=headers)
+    assert r.status_code == 204, f"cambio correcto deberia ser 204: {r.status_code} {r.text}"
+    r = client.get("/api/v1/auth/me", headers=headers)
+    assert r.json()["debe_cambiar_contrasena"] is False, "debe_cambiar_contrasena deberia ser False tras el cambio"
+    print("  cambio correcto -> 204 y flag=False: PASADO")
+
+    # Login con la nueva contrasena
+    r = client.post("/api/v1/auth/login", json={"correo": "ratelimit@celr.com", "contrasena": "new456"})
+    assert r.status_code == 200, f"login con nueva contrasena fallo: {r.status_code}"
+    print("  login con nueva contrasena -> 200: PASADO")
+    r = client.post("/api/v1/auth/login", json={"correo": "ratelimit@celr.com", "contrasena": "old123"})
+    assert r.status_code == 401, f"login con contrasena vieja deberia ser 401: {r.status_code}"
+    print("  login con contrasena vieja -> 401: PASADO")
+
+    # Rate limit: 5 fallos y el 6to intento se bloquea (429)
+    bloqueado = "blocked@celr.com"
+    for i in range(5):
+        r = client.post("/api/v1/auth/login", json={"correo": bloqueado, "contrasena": "clave"})
+        assert r.status_code == 401, f"try {i+1} deberia ser 401: {r.status_code}"
+    print("  5 intentos fallidos -> 401: PASADO")
+    r = client.post("/api/v1/auth/login", json={"correo": bloqueado, "contrasena": "clave"})
+    assert r.status_code == 429, f"6to intento deberia ser 429: {r.status_code} {r.json()}"
+    print("  6to intento (bloqueado) -> 429: PASADO")
+
+    # Un login correcto en otra cuenta no se ve afectado (unico por clave)
+    r = client.post("/api/v1/auth/login", json={"correo": "test@celr.com", "contrasena": "admin123"})
+    assert r.status_code == 200, f"login de otra cuenta afectado por rate limit: {r.status_code}"
+    print("  login correcto de otra cuenta -> 200 (rate limit por clave): PASADO")
+
+
 def main():
     print("Iniciando prueba de autenticacion JWT CELR v6...")
     db = SessionLocal()
@@ -130,6 +253,8 @@ def main():
         test_jwt()
         token = test_login()
         test_get_me(token)
+        test_refresh_flow()
+        test_cambio_contrasena_y_rate_limit()
         print("\n[TODOS LOS TESTS DE AUTENTICACION PASARON]")
     except Exception as e:
         print(f"\n[ERROR EN TESTS]: {e}")

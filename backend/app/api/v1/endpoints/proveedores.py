@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from typing import List
@@ -9,6 +9,7 @@ from app.db.session import get_db
 from app.models.flota import Usuario
 from app.models.operaciones import Proveedor
 from app.schemas.proveedor import ProveedorCreate, ProveedorUpdate, ProveedorResponse
+from app.services.ubicacion import autocompletar_municipio_texto, autocompletar_municipio_orm
 
 router = APIRouter()
 
@@ -24,7 +25,9 @@ def crear_proveedor(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    db_proveedor = Proveedor(**proveedor.model_dump())
+    data = proveedor.model_dump()
+    autocompletar_municipio_texto(db, data, "ciudad", "ciudad_municipio_id")
+    db_proveedor = Proveedor(**data)
     db.add(db_proveedor)
     db.commit()
     db.refresh(db_proveedor)
@@ -33,10 +36,18 @@ def crear_proveedor(
 
 @router.get("/proveedores", response_model=List[ProveedorResponse])
 def listar_proveedores(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=100),
+    response: Response = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    return db.query(Proveedor).all()
+    query = db.query(Proveedor)
+    total = query.count()
+    items = query.offset(skip).limit(limit).all()
+    if response is not None:
+        response.headers["X-Total-Count"] = str(total)
+    return items
 
 
 @router.get("/proveedores/{proveedor_id}", response_model=ProveedorResponse)
@@ -68,6 +79,7 @@ def actualizar_proveedor(
     update_data = proveedor.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(db_proveedor, key, value)
+    autocompletar_municipio_orm(db, db_proveedor, "ciudad", "ciudad_municipio_id")
     try:
         db.commit()
     except IntegrityError:

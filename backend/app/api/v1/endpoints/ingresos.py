@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from app.api.v1.deps import get_current_user, RoleChecker
@@ -36,13 +37,20 @@ def registrar_ingreso(
 @router.get("/ingresos", response_model=List[IngresoResponse])
 def listar_ingresos(
     viaje_id: Optional[int] = Query(None, description="Filtrar por viaje"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=100),
+    response: Response = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    query = db.query(Ingreso)
+    query = db.query(Ingreso).filter(Ingreso.eliminado_en.is_(None))
     if viaje_id:
         query = query.filter(Ingreso.viaje_id == viaje_id)
-    return query.all()
+    total = query.count()
+    items = query.offset(skip).limit(limit).all()
+    if response is not None:
+        response.headers["X-Total-Count"] = str(total)
+    return items
 
 
 @router.get("/ingresos/{ingreso_id}", response_model=IngresoResponse)
@@ -51,7 +59,11 @@ def obtener_ingreso(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    db_ingreso = db.query(Ingreso).filter(Ingreso.id == ingreso_id).first()
+    db_ingreso = (
+        db.query(Ingreso)
+        .filter(Ingreso.id == ingreso_id, Ingreso.eliminado_en.is_(None))
+        .first()
+    )
     if not db_ingreso:
         raise HTTPException(status_code=404, detail="Ingreso no encontrado")
     return db_ingreso
@@ -64,7 +76,11 @@ def actualizar_ingreso(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    db_ingreso = db.query(Ingreso).filter(Ingreso.id == ingreso_id).first()
+    db_ingreso = (
+        db.query(Ingreso)
+        .filter(Ingreso.id == ingreso_id, Ingreso.eliminado_en.is_(None))
+        .first()
+    )
     if not db_ingreso:
         raise HTTPException(status_code=404, detail="Ingreso no encontrado")
     update_data = ingreso.model_dump(exclude_unset=True)
@@ -85,16 +101,14 @@ def eliminar_ingreso(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    db_ingreso = db.query(Ingreso).filter(Ingreso.id == ingreso_id).first()
+    db_ingreso = (
+        db.query(Ingreso)
+        .filter(Ingreso.id == ingreso_id, Ingreso.eliminado_en.is_(None))
+        .first()
+    )
     if not db_ingreso:
         raise HTTPException(status_code=404, detail="Ingreso no encontrado")
-    try:
-        db.delete(db_ingreso)
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail="No se puede eliminar: el ingreso tiene registros asociados.",
-        )
+    db_ingreso.eliminado_en = datetime.now(timezone.utc)
+    db_ingreso.eliminado_por = current_user.id
+    db.commit()
     return None

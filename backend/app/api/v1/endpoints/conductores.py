@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from typing import List
@@ -32,10 +32,18 @@ def crear_conductor(
 
 @router.get("/conductores", response_model=List[ConductorResponse])
 def listar_conductores(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=100),
+    response: Response = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    return db.query(Conductor).all()
+    query = db.query(Conductor)
+    total = query.count()
+    items = query.offset(skip).limit(limit).all()
+    if response is not None:
+        response.headers["X-Total-Count"] = str(total)
+    return items
 
 
 @router.get("/conductores/{conductor_id}", response_model=ConductorResponse)

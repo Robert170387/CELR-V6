@@ -25,6 +25,7 @@ interface Desglose {
   total_anticipos: string
   total_ingresos: string
   comision_flete: string
+  porcentaje_comision: number
   saldo_neto: string
 }
 
@@ -90,7 +91,7 @@ const Liquidaciones: React.FC = () => {
         periodo_inicio: viajeSeleccionado.fecha_salida,
         periodo_fin: hoy(),
         comision_flete: Number(desglose.comision_flete),
-        porcentaje_comision: 10,
+        porcentaje_comision: Number(desglose.porcentaje_comision ?? 10),
         bonificaciones: 0,
         viaticos_reconocidos: 0,
         otros_haberes: 0,
@@ -125,7 +126,7 @@ const Liquidaciones: React.FC = () => {
         { label: 'Gastos a cargo del conductor', valor: desglose.total_gastos_conductor, tono: 'text-slate-300', negativo: false },
         { label: 'Anticipos entregados', valor: desglose.total_anticipos, tono: 'text-orange-400', negativo: true },
         { label: 'Ingresos totales', valor: desglose.total_ingresos, tono: 'text-green-400', negativo: false },
-        { label: 'Comisión flete (10%)', valor: desglose.comision_flete, tono: 'text-orange-400', negativo: true },
+        { label: `Comisión flete (${desglose.porcentaje_comision ?? 10}%)`, valor: desglose.comision_flete, tono: 'text-orange-400', negativo: true },
       ]
     : []
 

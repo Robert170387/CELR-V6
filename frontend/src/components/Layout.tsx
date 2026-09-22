@@ -22,7 +22,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { useOfflineSync } from '@/utils/useOfflineSync'
 import { menuPermitido, esRolFinanzas, esRolRecursos } from '@/utils/rbac'
-import { PendingTransaction } from '@/utils/offlineStore'
+import { PendingTransaction, DiscardedTransaction } from '@/utils/offlineStore'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -82,7 +82,15 @@ const resumenItem = (tx: PendingTransaction): string => {
 }
 
 const SyncQueueDrawer: React.FC<{ abierto: boolean; onClose: () => void }> = ({ abierto, onClose }) => {
-  const { isOnline, isSyncing, pendientes, sync } = useOfflineSync()
+  const {
+    isOnline,
+    isSyncing,
+    pendientes,
+    descartados,
+    discardedCount,
+    sync,
+    limpiarDescartados,
+  } = useOfflineSync()
 
   if (!abierto) return null
 
@@ -138,16 +146,63 @@ const SyncQueueDrawer: React.FC<{ abierto: boolean; onClose: () => void }> = ({ 
                   >
                     {etiquetaTipo[tx.type]?.label || tx.type}
                   </span>
-                  <span className="text-xs text-slate-500">
-                    {new Date(tx.timestamp).toLocaleString('es-CO', {
-                      dateStyle: 'short',
-                      timeStyle: 'short',
-                    })}
-                  </span>
+                  {tx.estado === 'pending_auth' ? (
+                    <span className="px-2 py-0.5 rounded-full text-xs bg-amber-500/20 text-amber-400">
+                      requiere iniciar sesión
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-500">
+                      {new Date(tx.timestamp).toLocaleString('es-CO', {
+                        dateStyle: 'short',
+                        timeStyle: 'short',
+                      })}
+                    </span>
+                  )}
                 </div>
                 <p className="text-sm text-slate-300 mt-2">{resumenItem(tx)}</p>
               </div>
             ))
+          )}
+
+          {descartados.length > 0 && (
+            <div className="mt-4">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-xs font-semibold tracking-widest text-slate-400 uppercase flex items-center gap-1">
+                  <AlertTriangle size={12} />
+                  Descartados ({discardedCount})
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => void limpiarDescartados()}
+                  className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  Limpiar bitácora
+                </button>
+              </div>
+              <div className="space-y-2">
+                {descartados.map((d) => (
+                  <div key={d.id} className="p-3 bg-red-950/40 border border-red-900/40 rounded-lg">
+                    <div className="flex items-center justify-between gap-2">
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-xs capitalize ${
+                          etiquetaTipo[d.type]?.color || 'bg-slate-500/20 text-slate-400'
+                        }`}
+                      >
+                        {etiquetaTipo[d.type]?.label || d.type}
+                      </span>
+                      <span className="text-xs text-slate-500">
+                        {new Date(d.timestamp).toLocaleString('es-CO', {
+                          dateStyle: 'short',
+                          timeStyle: 'short',
+                        })}
+                      </span>
+                    </div>
+                    <p className="text-sm text-slate-300 mt-2">{resumenDiscartado(d)}</p>
+                    <p className="text-xs text-red-400 mt-1">{d.motivo}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </div>
 
@@ -167,8 +222,13 @@ const SyncQueueDrawer: React.FC<{ abierto: boolean; onClose: () => void }> = ({ 
   )
 }
 
+const resumenDiscartado = (d: DiscardedTransaction): string => {
+  const base = resumenItem(d as unknown as PendingTransaction)
+  return base || 'Registro sin resumen'
+}
+
 const StatusIndicator: React.FC = () => {
-  const { isOnline, isSyncing, pendingCount, sync } = useOfflineSync()
+  const { isOnline, isSyncing, pendingCount, pendingAuthCount, sync } = useOfflineSync()
   const [drawerAbierto, setDrawerAbierto] = useState(false)
 
   const statusColor = isOnline ? 'bg-green-500' : 'bg-red-500'
@@ -183,6 +243,16 @@ const StatusIndicator: React.FC = () => {
             {statusText}
           </span>
         </div>
+        {pendingAuthCount > 0 && (
+          <button
+            onClick={() => setDrawerAbierto(true)}
+            className="flex items-center gap-1 px-2 py-1 bg-amber-500/20 hover:bg-amber-500/40 text-amber-400 rounded-md text-xs transition-colors"
+            title="Estos envíos requieren que vuelvas a iniciar sesión"
+          >
+            <AlertTriangle size={12} />
+            {pendingAuthCount} requieren iniciar sesión
+          </button>
+        )}
         {pendingCount > 0 ? (
           <button
             onClick={() => setDrawerAbierto(true)}

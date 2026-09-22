@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 14
+
+    # Porcentaje de comisión por defecto para liquidaciones de conductores
+    COMISION_CONDUCTOR_DEFAULT_PORCENTAJE: float = 10.0
 
     # Orígenes permitidos por CORS (lista separada por comas)
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"

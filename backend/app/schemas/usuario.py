@@ -29,6 +29,7 @@ class UsuarioResponse(BaseModel):
     rol: str
     conductor_id: Optional[int]
     activo: bool
+    debe_cambiar_contrasena: bool = False
     ultimo_acceso: Optional[datetime]
     creado_en: datetime
     actualizado_en: datetime

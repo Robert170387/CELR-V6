@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Integer, String, Numeric, Boolean, Date, ForeignKey, Text, DateTime, CheckConstraint, Computed
+from sqlalchemy import Column, Integer, String, Numeric, Boolean, Date, ForeignKey, Text, DateTime, CheckConstraint, Computed, event
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, text
+from datetime import datetime
 from app.db.base_class import Base
 
 class Proveedor(Base):
@@ -14,6 +15,7 @@ class Proveedor(Base):
     telefono = Column(String(20))
     correo = Column(String(100))
     ciudad = Column(String(80))
+    ciudad_municipio_id = Column(Integer, ForeignKey("municipios.id"), index=True)
     banco = Column(String(80))
     tipo_cuenta = Column(String(30))
     numero_cuenta = Column(String(50))
@@ -29,6 +31,8 @@ class ViajeODT(Base):
     conductor_id = Column(Integer, ForeignKey("conductores.id"), nullable=False, index=True)
     origen = Column(String(100), nullable=False)
     destino = Column(String(100), nullable=False)
+    origen_municipio_id = Column(Integer, ForeignKey("municipios.id"), index=True)
+    destino_municipio_id = Column(Integer, ForeignKey("municipios.id"), index=True)
     empresa_manifiesto = Column(String(150))
     tipo_carga = Column(String(100))
     peso_declarado_ton = Column(Numeric(8,2))
@@ -50,6 +54,8 @@ class ViajeODT(Base):
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     creado_por = Column(Integer, ForeignKey("usuarios.id"))
+    eliminado_en = Column(DateTime(timezone=True))
+    eliminado_por = Column(Integer, ForeignKey("usuarios.id"))
     
 class TarjetaBancaria(Base):
     __tablename__ = "tarjetas_bancarias"
@@ -83,6 +89,7 @@ class Gasto(Base):
     cantidad_galones = Column(Numeric(8,3))
     precio_por_galon = Column(Numeric(10,2))
     ciudad_abastecimiento = Column(String(80))
+    ciudad_abastecimiento_municipio_id = Column(Integer, ForeignKey("municipios.id"), index=True)
     responsable_pago = Column(String(50), nullable=False, default='conductor')
     asumido_por = Column(String(50), nullable=False, default='empresa')
     tarjeta_id = Column(Integer, ForeignKey("tarjetas_bancarias.id"))
@@ -98,3 +105,32 @@ class Gasto(Base):
     reportado_por = Column(Integer, ForeignKey("usuarios.id"))
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    eliminado_en = Column(DateTime(timezone=True))
+    eliminado_por = Column(Integer, ForeignKey("usuarios.id"))
+
+
+@event.listens_for(ViajeODT, "before_insert")
+def _asignar_numero_odt(mapper, connection, target):
+    """Genera numero_odt automaticamente cuando se crea un ViajeODT sin el.
+
+    Aplica solos a inserts ORM/script que no pasan por el endpoint (que usa
+    app.services.secuencias). El consecutivo es atomico (UPSERT ... RETURNING)
+    sobre la tabla secuencias_documento en la misma transaccion/conn.
+    """
+    if target.numero_odt:
+        return
+    fecha = target.fecha_salida
+    if isinstance(fecha, str):
+        fecha = fecha[:4] if fecha else ""
+        anio = int(fecha) if fecha else datetime.now().year
+    else:
+        anio = fecha.year if fecha else datetime.now().year
+    valor = connection.execute(
+        text(
+            "INSERT INTO secuencias_documento (clave, valor) VALUES (:clave, 1) "
+            "ON CONFLICT (clave) DO UPDATE SET valor = secuencias_documento.valor + 1 "
+            "RETURNING valor"
+        ),
+        {"clave": f"odt_{anio}"},
+    ).scalar()
+    target.numero_odt = f"ODT-{anio}-{valor:06d}"

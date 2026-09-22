@@ -5,12 +5,13 @@ from decimal import Decimal
 
 
 class ViajeCreate(BaseModel):
-    numero_odt: str = Field(..., max_length=30)
     num_manifiesto: Optional[str] = Field(None, max_length=30)
     vehiculo_id: int
     conductor_id: int
     origen: str = Field(..., max_length=100)
     destino: str = Field(..., max_length=100)
+    origen_municipio_id: Optional[int] = None
+    destino_municipio_id: Optional[int] = None
     empresa_manifiesto: Optional[str] = Field(None, max_length=150)
     tipo_carga: Optional[str] = Field(None, max_length=100)
     peso_declarado_ton: Optional[Decimal] = Field(None, ge=0)
@@ -37,6 +38,8 @@ class ViajeUpdate(BaseModel):
     conductor_id: Optional[int] = None
     origen: Optional[str] = Field(None, max_length=100)
     destino: Optional[str] = Field(None, max_length=100)
+    origen_municipio_id: Optional[int] = None
+    destino_municipio_id: Optional[int] = None
     empresa_manifiesto: Optional[str] = Field(None, max_length=150)
     tipo_carga: Optional[str] = Field(None, max_length=100)
     peso_declarado_ton: Optional[Decimal] = Field(None, ge=0)
@@ -64,6 +67,8 @@ class ViajeResponse(BaseModel):
     conductor_id: int
     origen: str
     destino: str
+    origen_municipio_id: Optional[int]
+    destino_municipio_id: Optional[int]
     empresa_manifiesto: Optional[str]
     tipo_carga: Optional[str]
     peso_declarado_ton: Optional[Decimal]

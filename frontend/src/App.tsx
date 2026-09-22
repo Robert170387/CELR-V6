@@ -1,7 +1,9 @@
 import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
+import { MunicipiosProvider } from '@/context/MunicipiosContext'
 import Login from '@/pages/Login'
+import CambioContrasena from '@/pages/CambioContrasena'
 import Dashboard from '@/pages/Dashboard'
 import Viajes from '@/pages/Viajes'
 import Gastos from '@/pages/Gastos'
@@ -24,6 +26,12 @@ const RequireRole: React.FC<{ path: string; children: React.ReactNode }> = ({ pa
   return <>{children}</>
 }
 
+const RequiereCambioContrasena: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useAuth()
+  if (user?.debe_cambiar_contrasena) return <Navigate to="/cambiar-contrasena" replace />
+  return <>{children}</>
+}
+
 const AppRoutes: React.FC = () => {
   const { isAuthenticated } = useAuth()
 
@@ -31,10 +39,21 @@ const AppRoutes: React.FC = () => {
     <Routes>
       <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <Login />} />
       <Route
+        path="/cambiar-contrasena"
+        element={
+          isAuthenticated ? (
+            <CambioContrasena />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+      <Route
         path="/*"
         element={
           <ProtectedRoute>
-            <Layout>
+            <RequiereCambioContrasena>
+              <Layout>
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/viajes" element={<Viajes />} />
@@ -74,6 +93,7 @@ const AppRoutes: React.FC = () => {
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Layout>
+            </RequiereCambioContrasena>
           </ProtectedRoute>
         }
       />
@@ -83,9 +103,11 @@ const AppRoutes: React.FC = () => {
 
 const App: React.FC = () => (
   <BrowserRouter>
-    <AuthProvider>
-      <AppRoutes />
-    </AuthProvider>
+    <MunicipiosProvider>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
+    </MunicipiosProvider>
   </BrowserRouter>
 )
 

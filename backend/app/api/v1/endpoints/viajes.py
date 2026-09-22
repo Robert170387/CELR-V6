@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from datetime import datetime, timezone
 from typing import List
 
 from app.api.v1.deps import get_current_user, RoleChecker
@@ -9,6 +10,8 @@ from app.db.session import get_db
 from app.models.flota import Usuario
 from app.models.operaciones import ViajeODT
 from app.schemas.viaje import ViajeCreate, ViajeUpdate, ViajeResponse
+from app.services.secuencias import siguiente_consecutivo
+from app.services.ubicacion import autocompletar_municipio_texto, autocompletar_municipio_orm
 
 router = APIRouter()
 
@@ -22,6 +25,11 @@ def crear_viaje(
     data = viaje.model_dump()
     if not data.get("creado_por"):
         data["creado_por"] = current_user.id
+    autocompletar_municipio_texto(db, data, "origen", "origen_municipio_id")
+    autocompletar_municipio_texto(db, data, "destino", "destino_municipio_id")
+    anio = data["fecha_salida"].year if data.get("fecha_salida") else datetime.now().year
+    consecutivo = siguiente_consecutivo(db, f"odt_{anio}")
+    data["numero_odt"] = f"ODT-{anio}-{consecutivo:06d}"
     db_viaje = ViajeODT(**data)
     db.add(db_viaje)
     db.commit()
@@ -32,12 +40,19 @@ def crear_viaje(
 @router.get("/viajes", response_model=List[ViajeResponse])
 def listar_viajes(
     activo: bool = True,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=100),
+    response: Response = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    query = db.query(ViajeODT)
+    query = db.query(ViajeODT).filter(ViajeODT.eliminado_en.is_(None))
     query = query.filter(ViajeODT.estado == "en_curso") if activo else query
-    return query.all()
+    total = query.count()
+    items = query.offset(skip).limit(limit).all()
+    if response is not None:
+        response.headers["X-Total-Count"] = str(total)
+    return items
 
 
 @router.get("/viajes/{viaje_id}", response_model=ViajeResponse)
@@ -46,7 +61,11 @@ def obtener_viaje(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    db_viaje = db.query(ViajeODT).filter(ViajeODT.id == viaje_id).first()
+    db_viaje = (
+        db.query(ViajeODT)
+        .filter(ViajeODT.id == viaje_id, ViajeODT.eliminado_en.is_(None))
+        .first()
+    )
     if not db_viaje:
         raise HTTPException(status_code=404, detail="Viaje no encontrado")
     return db_viaje
@@ -63,12 +82,20 @@ def actualizar_viaje(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    db_viaje = db.query(ViajeODT).filter(ViajeODT.id == viaje_id).first()
+    db_viaje = (
+        db.query(ViajeODT)
+        .filter(ViajeODT.id == viaje_id, ViajeODT.eliminado_en.is_(None))
+        .first()
+    )
     if not db_viaje:
         raise HTTPException(status_code=404, detail="Viaje no encontrado")
     update_data = viaje.model_dump(exclude_unset=True)
+    if "numero_odt" in update_data and current_user.rol != "admin":
+        raise HTTPException(status_code=403, detail="Solo el rol admin puede corregir el número de ODT")
     for key, value in update_data.items():
         setattr(db_viaje, key, value)
+    autocompletar_municipio_orm(db, db_viaje, "origen", "origen_municipio_id")
+    autocompletar_municipio_orm(db, db_viaje, "destino", "destino_municipio_id")
     try:
         db.commit()
     except IntegrityError:
@@ -91,18 +118,16 @@ def eliminar_viaje(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    db_viaje = db.query(ViajeODT).filter(ViajeODT.id == viaje_id).first()
+    db_viaje = (
+        db.query(ViajeODT)
+        .filter(ViajeODT.id == viaje_id, ViajeODT.eliminado_en.is_(None))
+        .first()
+    )
     if not db_viaje:
         raise HTTPException(status_code=404, detail="Viaje no encontrado")
-    try:
-        db.delete(db_viaje)
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail="No se puede eliminar: el viaje tiene gastos, ingresos o liquidaciones asociados.",
-        )
+    db_viaje.eliminado_en = datetime.now(timezone.utc)
+    db_viaje.eliminado_por = current_user.id
+    db.commit()
     return None
 
 
@@ -112,7 +137,11 @@ def listar_viajes_por_vehiculo(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    return db.query(ViajeODT).filter(ViajeODT.vehiculo_id == vehiculo_id).all()
+    return (
+        db.query(ViajeODT)
+        .filter(ViajeODT.vehiculo_id == vehiculo_id, ViajeODT.eliminado_en.is_(None))
+        .all()
+    )
 
 
 @router.get("/viajes/conductor/{conductor_id}", response_model=List[ViajeResponse])
@@ -121,4 +150,8 @@ def listar_viajes_por_conductor(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    return db.query(ViajeODT).filter(ViajeODT.conductor_id == conductor_id).all()
+    return (
+        db.query(ViajeODT)
+        .filter(ViajeODT.conductor_id == conductor_id, ViajeODT.eliminado_en.is_(None))
+        .all()
+    )

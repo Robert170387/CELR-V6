@@ -17,6 +17,7 @@ class LiquidacionCalculateResponse(BaseModel):
     total_anticipos: Decimal = Field(default=0, ge=0)
     total_ingresos: Decimal = Field(default=0, ge=0)
     comision_flete: Decimal = Field(default=0, ge=0)
+    porcentaje_comision: Decimal = Field(default=0, ge=0, le=100)
     saldo_neto: Decimal = Field(default=0)
 
 

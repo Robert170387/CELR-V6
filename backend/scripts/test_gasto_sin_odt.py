@@ -41,7 +41,6 @@ def main():
             "responsable_pago": "empresa",
             "tiene_num_factura": True,
             "num_factura": f"SF-{suf}",
-            "hash_comprobante": f"smoke-sin-odt-{suf}",
         },
         headers=headers,
     )

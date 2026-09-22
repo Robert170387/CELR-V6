@@ -16,7 +16,6 @@ from decimal import Decimal
 BASE_URL = os.getenv("CELR_BASE_URL", "http://localhost:8000")
 
 SUFFIX = str(int(time.time() * 1000))
-ODT_NUMERO = f"ODT-E2E-{SUFFIX}"
 HASH_GASTO_1 = f"e2e-hash-{SUFFIX}-1"
 HASH_GASTO_2 = f"e2e-hash-{SUFFIX}-2"
 
@@ -48,7 +47,6 @@ def test_01_auth():
 def test_02_create_viaje(headers):
     print_section("TEST 2: Crear ODT / Viaje Activo")
     viaje_data = {
-        "numero_odt": ODT_NUMERO,
         "vehiculo_id": 1,
         "conductor_id": 1,
         "origen": "Bogota",
@@ -64,6 +62,7 @@ def test_02_create_viaje(headers):
     assert r.status_code == 201, f"Crear viaje fallido: {r.text}"
     viaje = r.json()
     print(f"  Viaje creado: id={viaje['id']}, numero_odt={viaje['numero_odt']}")
+    assert viaje['numero_odt'].startswith("ODT-"), "numero_odt debe ser autogenerado por el servidor"
     print(f"  flete_neto={viaje['flete_neto']}")
     return viaje['id'], viaje['flete_neto']
 
