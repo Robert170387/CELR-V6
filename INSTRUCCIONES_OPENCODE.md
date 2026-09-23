@@ -59,8 +59,8 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 
 ## 5. Estado actual
 
-- Rama `main` = **33 commits por delante de `origin/main`** (FASE A2 + FASE 2 + docs 2.G + alineación ODT + FASE Gastos + FASE Liquidaciones + docs).
-- **Backup remoto:** `origin/fase-a2-fase-2-local` actualizado a **32 commits** (`0bd5d31` — ODT + Gastos + Liquidaciones + docs ya respaldados). El commit de esta sección (hallazgos de sesión) queda **solo local** hasta el merge.
+- Rama `main` y backup: **conteo vivo** con `git rev-list --count origin/main..HEAD` (fases mezcladas: FASE A2 + FASE 2 + docs 2.G + alineación ODT + FASE Gastos + FASE Liquidaciones + docs). No se pinea el número exacto aquí para evitar el off-by-one autoreferencial (ver `e474022`).
+- **Backup remoto:** `origin/fase-a2-fase-2-local` se mantiene **al día con `main` local** tras cada sesión. Verificar con `git rev-list --left-right --count origin/fase-a2-fase-2-local...main` → esperado `0 0`. El merge a `origin/main` sigue pendiente.
 - Pendiente real: **merge/push a `main`** (PAT del usuario) + deploy manual en Render.
 - **FASE 2 cerrada:**
   | Sub-fase | Commit | Qué cambió |
@@ -90,9 +90,8 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 
 ## 6. Pendientes (GitHub / Render)
 
-1. **Hecho:** los 22 commits de FASE A2+FASE 2 ya están respaldados en `origin/fase-a2-fase-2-local` (`e474022`).
-   Tras las fases de alineación (ODT + Gastos + Liquidaciones), `main` local quedó en **31 commits** (los 9 nuevos
-   solo locales).
+1. **Hecho:** todo `main` local está respaldado en `origin/fase-a2-fase-2-local` (conteo vivo:
+   `git rev-list --count origin/fase-a2-fase-2-local...main` → `0 0` tras cada sesión).
    Pendiente: **merge a `main`** — vía PR en GitHub o
    `git checkout main && git merge fase-a2-fase-2-local`, luego
    `git push origin main` con **PAT del usuario** (Credential Manager, Opción A).
