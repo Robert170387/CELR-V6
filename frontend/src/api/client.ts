@@ -1,4 +1,5 @@
 import axios, { AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig } from 'axios'
+import { setTransactionEstado } from '@/utils/offlineStore'
 
 // En producción (Render static site) se apunta al backend con VITE_API_URL.
 // En desarrollo cae a la ruta relativa, que Vite redirige vía proxy.
@@ -94,7 +95,6 @@ apiClient.interceptors.response.use(
         // La transacción de la cola offline queda esperando autenticación:
         // NO se descarta ni se redirige; la UI muestra el contador "requieren iniciar sesión".
         if (original._celrTxId) {
-          const { setTransactionEstado } = await import('@/utils/offlineStore')
           await setTransactionEstado(original._celrTxId, 'pending_auth')
         }
         window.dispatchEvent(new Event('celr:queued'))
