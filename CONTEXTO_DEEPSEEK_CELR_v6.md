@@ -315,10 +315,10 @@ venv\Scripts\python.exe scripts/test_liquidaciones.py
 #      test_ocr, test_endpoints, verify_models)
 
 # E2E (requiere servidor corriendo, p. ej. Docker :8001)
-# NOTA: el venv del backend NO tiene `requests` → usar el Python del sistema:
+# Se ejecuta con el venv del backend (ya incluye `requests`):
 $env:PYTHONUTF8="1"
 $env:CELR_BASE_URL="http://localhost:8001"
-C:\Python314\python.exe ..\scripts\e2e_flow_test.py  # (ajusta la ruta al repo)
+venv\Scripts\python.exe ..\scripts\e2e_flow_test.py  # desde backend/
 ```
 
 > Los tests dejan **datos de prueba en la BD real** (no hay borrado en lote). Los principales ya

@@ -16,3 +16,5 @@ Pillow
 # google-cloud-vision
 # Requerido por starlette.testclient (TestClient) en scripts de prueba
 httpx2
+# Cliente HTTP para la suite E2E (scripts/e2e_flow_test.py)
+requests>=2.31
