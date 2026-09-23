@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Fuel, Plus, Loader2, AlertCircle, CheckCircle2, XCircle, Pencil, Trash2, X } from 'lucide-react'
-import { gastosAPI, viajesAPI, vehiculosAPI } from '@/api'
+import { gastosAPI, viajesAPI, vehiculosAPI, proveedoresAPI } from '@/api'
 import Pagination from '@/components/Pagination'
 import SelectorCiudad from '@/components/SelectorCiudad'
 import { extraerMensajeError, formatearMoneda, esErrorDeRed } from '@/utils/format'
@@ -16,6 +16,13 @@ interface Vehiculo {
   id: number
   placa: string
   marca: string
+}
+
+interface Proveedor {
+  id: number
+  nit: string | null
+  razon_social: string
+  nombre_comercial: string | null
 }
 
 interface Gasto {
@@ -38,6 +45,8 @@ interface Gasto {
   metodo_pago?: string | null
   estado_pago?: string | null
   legalizado?: boolean | null
+  // FASE Gastos — proveedor / cliente del gasto (FK existente, opcional)
+  proveedor_id?: number | null
 }
 
 const categorias = ['combustible', 'peaje', 'viaticos', 'mantenimiento', 'lavado', 'parqueadero', 'otros']
@@ -64,6 +73,7 @@ const hoy = () => new Date().toISOString().slice(0, 10)
 const initialForm = () => ({
   viaje_id: '',
   vehiculo_id: '',
+  proveedor_id: '',
   categoria: 'combustible',
   descripcion: '',
   num_factura: '',
@@ -83,6 +93,7 @@ const initialForm = () => ({
 const camposBaseEdicion: { name: string; label: string }[] = [
   { name: 'viaje_id', label: 'Viaje / ODT' },
   { name: 'vehiculo_id', label: 'Vehículo' },
+  { name: 'proveedor_id', label: 'Proveedor' },
   { name: 'categoria', label: 'Categoría' },
   { name: 'fecha_gasto', label: 'Fecha' },
   { name: 'valor_total', label: 'Valor Total' },
@@ -116,6 +127,7 @@ const Gastos: React.FC = () => {
   const [pagina, setPagina] = useState(1)
   const [viajes, setViajes] = useState<Viaje[]>([])
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>([])
+  const [proveedores, setProveedores] = useState<Proveedor[]>([])
   const [form, setForm] = useState(initialForm)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -136,10 +148,11 @@ const Gastos: React.FC = () => {
     setLoading(true)
     setListError('')
     try {
-      const [gastosRes, viajesRes, vehiculosRes] = await Promise.all([
+      const [gastosRes, viajesRes, vehiculosRes, proveedoresRes] = await Promise.all([
         gastosAPI.listar({ skip: (pagina - 1) * PAGE_SIZE, limit: PAGE_SIZE }),
         viajesAPI.listar(false),
         vehiculosAPI.listar(),
+        proveedoresAPI.listar(),
       ])
       const activos = (viajesRes.data as Viaje[]).filter(
         (v) => v.estado !== 'liquidado' && v.estado !== 'cancelado'
@@ -148,6 +161,7 @@ const Gastos: React.FC = () => {
       setTotalGastos(gastosRes.total)
       setViajes(activos)
       setVehiculos(vehiculosRes.data)
+      setProveedores(proveedoresRes.data)
       setForm((f) => ({
         ...f,
         viaje_id: f.viaje_id || (activos[0] ? String(activos[0].id) : ''),
@@ -216,6 +230,8 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
     if (form.viaje_id && form.viaje_id !== SIN_VIAJE) {
       payload.viaje_id = Number(form.viaje_id)
     }
+    // FASE Gastos — proveedor (FK existente; opcional)
+    if (form.proveedor_id) payload.proveedor_id = Number(form.proveedor_id)
     if (!payload.viaje_id) {
       payload.categoria = 'mantenimiento'
       payload.descripcion = form.descripcion || 'Gasto fijo / mantenimiento de vehículo'
@@ -288,6 +304,7 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
       valor_total: Number(editForm.valor_total),
     }
     if (editForm.viaje_id) payload.viaje_id = Number(editForm.viaje_id)
+    if (editForm.proveedor_id) payload.proveedor_id = Number(editForm.proveedor_id)
     if (editForm.descripcion) payload.descripcion = editForm.descripcion
     if (editForm.num_factura) payload.num_factura = editForm.num_factura
     if (editForm.asumido_por) payload.asumido_por = editForm.asumido_por
@@ -335,6 +352,11 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
 
   const numeroOdt = (id: number) => viajes.find((v) => v.id === id)?.numero_odt || `ODT #${id}`
   const placaVehiculo = (id: number) => vehiculos.find((v) => v.id === id)?.placa || `Vehículo #${id}`
+  const nombreProveedor = (id?: number | null) => {
+    if (!id) return '-'
+    const p = proveedores.find((x) => x.id === id)
+    return p ? p.razon_social || p.nombre_comercial || `Proveedor #${id}` : `Proveedor #${id}`
+  }
 
   const patronesNumericosEdicion: Record<string, { step: string; min: string }> = {
     valor_total: { step: '0.01', min: '0' },
@@ -363,6 +385,18 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
           {vehiculos.map((v) => (
             <option key={v.id} value={v.id}>
               {v.placa} - {v.marca}
+            </option>
+          ))}
+        </select>
+      )
+    }
+    if (campo.name === 'proveedor_id') {
+      return (
+        <select name={campo.name} value={editForm[campo.name] || ''} onChange={handleEditChange} className="input-truck">
+          <option value="">Sin proveedor</option>
+          {proveedores.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.razon_social || p.nombre_comercial || `Proveedor #${p.id}`}
             </option>
           ))}
         </select>
@@ -622,6 +656,18 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
           </div>
 
           <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">Proveedor</label>
+            <select name="proveedor_id" value={form.proveedor_id} onChange={handleChange} className="input-truck">
+              <option value="">Sin proveedor</option>
+              {proveedores.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.razon_social || p.nombre_comercial || `Proveedor #${p.id}`}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
             <label className="block text-sm font-medium text-slate-300 mb-1">Asumido por</label>
             <select name="asumido_por" value={form.asumido_por} onChange={handleChange} className="input-truck">
               {asumidoPor.map((a) => (
@@ -712,6 +758,7 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
                   <th className="py-2 px-3">ODT</th>
                   <th className="py-2 px-3">Vehículo</th>
                   <th className="py-2 px-3">Categoría</th>
+                  <th className="py-2 px-3">Proveedor</th>
                   <th className="py-2 px-3">N° Factura</th>
                   <th className="py-2 px-3">Asumido</th>
                   <th className="py-2 px-3">Pago</th>
@@ -734,6 +781,7 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
                   </td>
                     <td className="py-3 px-3 text-white">{placaVehiculo(g.vehiculo_id)}</td>
                     <td className="py-3 px-3 text-white capitalize">{g.categoria}</td>
+                    <td className="py-3 px-3 text-slate-400">{nombreProveedor(g.proveedor_id)}</td>
                     <td className="py-3 px-3 text-slate-400">{g.num_factura || '-'}</td>
                     <td className="py-3 px-3 text-slate-400 capitalize">{g.asumido_por}</td>
                     <td className="py-3 px-3">
