@@ -103,8 +103,8 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
   | Sub-fase | Commit | Qué cambió |
   |---|---|---|
   | 1 migración+modelo | `1a11e18` | `f2e1d0c9b8a7_b2_cierre_mensual_compensado.py` (`es_cierre_mensual`, `periodo_ym` GENERATED STORED, `vehiculo_id` NULL, UNIQUE parcial) + modelo `LiquidacionConductor` |
-  | 2 endpoints+tests | `61a56be` | `POST/GET /liquidaciones/cierre-mensual`, `GET /liquidaciones/cierres-mensuales`, `POST /{id}/reabrir`, `POST /{id}/cancelar`, 409 en `/cerrar/{viaje_id}`; schemas `CierreMensualCreate/Response`; suite nueva `test_cierre_mensual.py` |
-  | 3 UI frontend | `2131127` | `Liquidaciones.tsx`: «Cerrar mes» + «Meses cerrados» (Detalle/Reabrir/Cancelar); `api/index.ts` (`CierreMensual` + métodos) |
+  | 2 endpoints+tests | `61a56be` | `POST/GET /liquidaciones/cierre-mensual`, `POST /{id}/reabrir`, `POST /{id}/cancelar`, 409 en `/cerrar/{viaje_id}`; schemas `CierreMensualCreate/Response`; suite nueva `test_cierre_mensual.py` |
+  | 3 UI frontend | `2131127` | `Liquidaciones.tsx`: «Cerrar mes» + «Meses cerrados» (Detalle/Reabrir/Cancelar); `api/index.ts` (`CierreMensual` + métodos). ⚠️ El commit (etiquetado `feat(frontend)`) arrastra el backend read-only `GET /cierres-mensuales` (soporte del listado) |
   | 4 docs | *(este commit)* | Sección B2 en `ALINEACION_MODELO_NEGOCIO.md` §5 + pipeline/nota `PYTHONIOENCODING` aquí (§3) |
 
 ## 6. Pendientes (GitHub / Render)
