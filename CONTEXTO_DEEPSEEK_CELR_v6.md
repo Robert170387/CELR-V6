@@ -273,14 +273,17 @@ a1b2c3d4e5f6  (head) — FASE A2: modelo contable/operativo
 
 ```
 rama local  = main
-HEAD local  = 6cc3452  (docs: sincroniza estado git pre-push)
+HEAD local  = <este mismo commit de corrección>  (ver `git log -1 --oneline`)
 origin/main = 317fbe2  (feat: gastos sin ODT, página de ingresos, ...)
-local adelante = 20 commits — SIN PUSH aun
+local adelante = 21 commits — SIN PUSH aún
                  (FASE A2:  9 commits, b802d82 → … → 5738e51)
                  (FASE 2.0-2.D: 165078e → 2e38ee4 → e0bf6bd → a73c952 → 962ee79)   [5]
-                 (docs/higiene 2.G: 3fdbb32 → c6fb07f → 62ca791 → d722f94 → d3b9557 → +1 sincronización) [6]
+                 (docs/higiene 2.G: 3fdbb32 → c6fb07f → 62ca791 → d722f94 → d3b9557 → 6cc3452 → d8fde7c) [7]
 working tree = limpio (solo los CONTEXTO_*.md untracked, no modificados)
 ```
+
+> Nota: este documento no pinea el hash del HEAD para evitar el off-by-one autoreferencial;
+> usar `git log -1 --oneline` como fuente viva.
 
 Historial reciente relevante:
 
@@ -303,6 +306,7 @@ Historial reciente relevante:
 | `d722f94` | docs: nota sobre secuencia ODT en producción (arranca en cero en BD nueva) |
 | `d3b9557` | docs: completa B1–B5 con preguntas al próximo consultor |
 | `6cc3452` | docs: sincroniza estado git pre-push (§9 e INSTRUCCIONES_OPENCODE, 20 commits) |
+| `d8fde7c` | docs: corrige §9/§11 (HEAD real, 20 commits pre-push) |
 
 ### BD / Docker / tests
 
@@ -355,7 +359,7 @@ venv\Scripts\python.exe ..\scripts\e2e_flow_test.py  # desde backend/
 
 ### P1 — Operativo / entrega (requiere autorización + credenciales del usuario)
 
-1. **Push a GitHub de los 20 commits.** `origin = https://github.com/Robert170387/CELR-V6.git`,
+1. **Push a GitHub de los 21 commits.** `origin = https://github.com/Robert170387/CELR-V6.git`,
    rama `main`, hoy **sin upstream de push** y **sin credencial de escritura** (se requiere un
    **PAT** del usuario). Comando (cuando el usuario lo autorice):
    ```powershell
