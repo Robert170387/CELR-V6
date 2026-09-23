@@ -48,8 +48,9 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 
 ## 5. Estado actual
 
-- Rama `main` = **20 commits por delante de `origin/main`** (FASE A2 + FASE 2 + docs 2.G) —
-  **SIN PUSH**; requiere PAT del usuario.
+- Rama `main` = **22 commits por delante de `origin/main`** (FASE A2 + FASE 2 + docs 2.G).
+- **Backup remoto hecho:** los 22 commits están en `origin/fase-a2-fase-2-local` (`e474022`).
+- Pendiente real: **merge/push a `main`** (PAT del usuario) + deploy manual en Render.
 - **FASE 2 cerrada:**
   | Sub-fase | Commit | Qué cambió |
   |---|---|---|
@@ -64,8 +65,10 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 
 ## 6. Pendientes (GitHub / Render)
 
-1. **Push** de los 20 commits a `origin` (`https://github.com/Robert170387/CELR-V6.git`, rama
-   `main`) con **PAT del usuario** (Credential Manager, Opción A): `git push origin main`.
+1. **Hecho:** los 22 commits ya están respaldados en `origin/fase-a2-fase-2-local` (`e474022`).
+   Pendiente: **merge a `main`** — vía PR en GitHub o
+   `git checkout main && git merge fase-a2-fase-2-local`, luego
+   `git push origin main` con **PAT del usuario** (Credential Manager, Opción A).
 2. **Actualizar los deploys de Render** a FASE A2 (backend + frontend estático con
    `VITE_API_URL=https://celr-backend.onrender.com/api/v1`). Orden de boot en Render:
    `alembic upgrade head && seed.py && scripts/seed_municipios.py`. No hacer sin credenciales.

@@ -275,10 +275,10 @@ a1b2c3d4e5f6  (head) — FASE A2: modelo contable/operativo
 rama local  = main
 HEAD local  = <este mismo commit de corrección>  (ver `git log -1 --oneline`)
 origin/main = 317fbe2  (feat: gastos sin ODT, página de ingresos, ...)
-local adelante = 21 commits — SIN PUSH aún
+local adelante = 22 commits — main SIN PUSH aún (ya respaldados: origin/fase-a2-fase-2-local @ e474022)
                  (FASE A2:  9 commits, b802d82 → … → 5738e51)
                  (FASE 2.0-2.D: 165078e → 2e38ee4 → e0bf6bd → a73c952 → 962ee79)   [5]
-                 (docs/higiene 2.G: 3fdbb32 → c6fb07f → 62ca791 → d722f94 → d3b9557 → 6cc3452 → d8fde7c) [7]
+                 (docs/higiene 2.G: 3fdbb32 → c6fb07f → 62ca791 → d722f94 → d3b9557 → 6cc3452 → d8fde7c → e474022) [8]
 working tree = limpio (solo los CONTEXTO_*.md untracked, no modificados)
 ```
 
@@ -359,9 +359,10 @@ venv\Scripts\python.exe ..\scripts\e2e_flow_test.py  # desde backend/
 
 ### P1 — Operativo / entrega (requiere autorización + credenciales del usuario)
 
-1. **Push a GitHub de los 21 commits.** `origin = https://github.com/Robert170387/CELR-V6.git`,
-   rama `main`, hoy **sin upstream de push** y **sin credencial de escritura** (se requiere un
-   **PAT** del usuario). Comando (cuando el usuario lo autorice):
+1. **HECHO (backup):** los 22 commits están en `origin/fase-a2-fase-2-local` (`e474022`; push
+   2026-09-23, rama segura, sin tocar Render). Pendiente: **merge/push a `main`** — vía PR en
+   GitHub o `git checkout main && git merge fase-a2-fase-2-local`, luego
+   `git push origin main` con **PAT del usuario**. Comando (cuando se autorice):
    ```powershell
    git push origin main
    ```
