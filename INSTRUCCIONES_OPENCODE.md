@@ -48,7 +48,8 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 
 ## 5. Estado actual
 
-- `HEAD = c6fb07f` · **15 commits de `main` sin push** (requiere PAT del usuario).
+- Rama `main` = **20 commits por delante de `origin/main`** (FASE A2 + FASE 2 + docs 2.G) —
+  **SIN PUSH**; requiere PAT del usuario.
 - **FASE 2 cerrada:**
   | Sub-fase | Commit | Qué cambió |
   |---|---|---|
@@ -63,8 +64,8 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 
 ## 6. Pendientes (GitHub / Render)
 
-1. **Push** de los 15 commits a `origin` (`https://github.com/Robert170387/CELR-V6.git`, rama
-   `main`) con **PAT del usuario**: `git push origin main`.
+1. **Push** de los 20 commits a `origin` (`https://github.com/Robert170387/CELR-V6.git`, rama
+   `main`) con **PAT del usuario** (Credential Manager, Opción A): `git push origin main`.
 2. **Actualizar los deploys de Render** a FASE A2 (backend + frontend estático con
    `VITE_API_URL=https://celr-backend.onrender.com/api/v1`). Orden de boot en Render:
    `alembic upgrade head && seed.py && scripts/seed_municipios.py`. No hacer sin credenciales.
@@ -85,13 +86,18 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 5. **2.E cancelada** (decisión de FASE 2): los 6 usuarios residuo quedan documentados, no se
    borran sin nuevo OK.
 
-## 8. Decisiones B1–B5 — PENDIENTES de definición por el consultor
+## 8. Decisiones B1–B5 — preguntas al próximo consultor/agente
 
-> Texto pendiente: el consultor aún no entregó el detalle de estas decisiones; no están en el
-> repo ni en el historial. Se completarán cuando llegue el texto exacto.
+Decisiones de negocio/arquitectura que quedan **abiertas**; no son decidibles por el agente. El
+consultor previo dejó el marco; quien retome el proyecto debe cerrarlas con el usuario:
 
-- B1: _(pendiente)_
-- B2: _(pendiente)_
-- B3: _(pendiente)_
-- B4: _(pendiente)_
-- B5: _(pendiente)_
+| # | Pregunta | Implica si se acepta |
+|---|---|---|
+| **B1** | ¿Rol `cliente` en seed? | Lógica de seed + credencial de prueba documentada. Riesgo mínimo. |
+| **B2** | ¿Persistir cierre mensual COMPENSADO_RC? | **Migración nueva** + tabla + endpoint POST + UI. Proyecto pequeño. |
+| **B3** | ¿Refresh token a cookie `HttpOnly`? | **Rompe el offline del PWA.** Trade-off explícito. |
+| **B4** | ¿Rate limiter distribuido? | Redis o tabla DB → **migración** + infra. Solo multi-instancia. |
+| **B5** | ¿OCR Google Vision o Tesseract local? | Código comentado; activar = dependencia cloud + credenciales. |
+
+Prioridad sugerida por el consultor previo: **B2 primero** (única con impacto funcional real hoy);
+B3 y B4 como deuda de seguridad/arquitectura al escalar; B1 y B5 cuando surja la necesidad.
