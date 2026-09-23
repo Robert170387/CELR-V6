@@ -43,6 +43,7 @@ frontend/.vite/
 # --- Artefactos y logs ------------------------------------------------------
 *.tsbuildinfo
 *.log
+backend_log_tail.txt
 *.sqlite3
 *.sqlite3-journal
 
