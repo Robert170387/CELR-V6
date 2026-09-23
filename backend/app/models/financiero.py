@@ -35,9 +35,17 @@ class LiquidacionConductor(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     conductor_id = Column(Integer, ForeignKey("conductores.id"), nullable=False, index=True)
-    vehiculo_id = Column(Integer, ForeignKey("vehiculos.id"), nullable=False)
+    # B2: en cierres mensuales el vehículo vive en cada ODT; la liquidación del
+    # mes no necesita uno propio (NULL permitido solo en es_cierre_mensual=true).
+    vehiculo_id = Column(Integer, ForeignKey("vehiculos.id"), nullable=True)
     periodo_inicio = Column(Date, nullable=False, index=True)
     periodo_fin = Column(Date, nullable=False, index=True)
+    # B2: clave de periodo normalizada ('YYYY-MM') calculada por PG; el índice
+    # real es el UNIQUE parcial de un solo cierre mensual por conductor+mes
+    # (creado en la migración B2, no aquí: Alembic es el mecanismo oficial).
+    # La expresión debe ser inmutable (PG): por eso EXTRACT+LPAD, no to_char.
+    periodo_ym = Column(String(7), Computed("lpad(extract(year from periodo_inicio)::int::text, 4, '0') || '-' || lpad(extract(month from periodo_inicio)::int::text, 2, '0')", persisted=True))
+    es_cierre_mensual = Column(Boolean, nullable=False, default=False, server_default="false")
     
     comision_flete = Column(Numeric(14,2), nullable=False, default=0)
     porcentaje_comision = Column(Numeric(5,2))
