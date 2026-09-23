@@ -269,6 +269,74 @@ def test_08_recrear_tras_cancelar(client, headers, cond_id, viajes_jun):
     return r.json()["id"]
 
 
+def test_09_cancelar_aprobado_400(client, headers, cond_id, veh_id, viaje_id):
+    print("\n=== Test 9: cancelar liquidación aprobada -> 400 ===")
+    r = client.post(
+        f"/api/v1/liquidaciones/cerrar/{viaje_id}",
+        json={
+            "conductor_id": cond_id,
+            "vehiculo_id": veh_id,
+            "periodo_inicio": "2026-06-01",
+            "periodo_fin": "2026-06-30",
+            "comision_flete": 85000,
+            "porcentaje_comision": 10,
+            "viajes_ids": [viaje_id],
+            "estado": "aprobado",
+        },
+        headers=headers,
+    )
+    assert r.status_code == 200, f"cerrar individual fallo: {r.status_code} {r.text}"
+    liq_id = r.json()["liquidacion_id"]
+    print(f"  liquidación aprobada creada: id={liq_id}")
+
+    r400 = client.post(f"/api/v1/liquidaciones/{liq_id}/cancelar", headers=headers)
+    assert r400.status_code == 400, f"cancelar aprobada debía ser 400, obtuve {r400.status_code} {r400.text}"
+    assert "borrador" in r400.json()["detail"]
+    print(f"  cancelar aprobada -> 400 OK: {r400.json()['detail']}")
+
+    # limpieza propia: reabrir a borrador y cancelar (libera el viaje a en_curso)
+    rr = client.post(f"/api/v1/liquidaciones/{liq_id}/reabrir", headers=headers)
+    assert rr.status_code == 200, f"reabrir fallo: {rr.status_code} {rr.text}"
+    rc = client.post(f"/api/v1/liquidaciones/{liq_id}/cancelar", headers=headers)
+    assert rc.status_code == 200, f"cancelar borrador fallo: {rc.status_code} {rc.text}"
+    print("  limpieza propia OK (reabrir + cancelar)")
+
+
+def test_10_cancelar_no_toca_odt_no_liquidada(client, headers, cond_id, viajes_jun, db):
+    print("\n=== Test 10: cancelar revalida ODTs (solo toca las 'liquidado') ===")
+    r = client.post(
+        "/api/v1/liquidaciones/cierre-mensual",
+        json={"conductor_id": cond_id, "periodo_ym": "2026-06"},
+        headers=headers,
+    )
+    assert r.status_code == 200, f"cierre-mensual fallo: {r.status_code} {r.text}"
+    liq_id = r.json()["id"]
+
+    db.refresh(viajes_jun[0])
+    db.refresh(viajes_jun[1])
+    assert viajes_jun[0].estado == "liquidado" and viajes_jun[1].estado == "liquidado"
+    print(f"  cierre creado id={liq_id}; ODTs {viajes_jun[0].id}, {viajes_jun[1].id} -> liquidado")
+
+    # drift: mientras existe el cierre, una ODT deja de estar 'liquidado' (p. ej. cancelada)
+    viajes_jun[1].estado = "cancelado"
+    db.commit()
+    db.refresh(viajes_jun[1])
+    print(f"  drift simulado: ODT {viajes_jun[1].id} -> {viajes_jun[1].estado}")
+
+    # cancelar: el update filtra estado='liquidado' -> libera solo la que sigue así
+    rc = client.post(f"/api/v1/liquidaciones/{liq_id}/cancelar", headers=headers)
+    assert rc.status_code == 200, f"cancelar fallo: {rc.status_code} {rc.text}"
+
+    db.refresh(viajes_jun[0])
+    db.refresh(viajes_jun[1])
+    assert viajes_jun[0].estado == "en_curso", \
+        f"ODT liquidada debía liberarse a en_curso, quedó {viajes_jun[0].estado}"
+    assert viajes_jun[1].estado == "cancelado", \
+        f"ODT no liquidada no debe ser tocada, quedó {viajes_jun[1].estado}"
+    print(f"  ODTs finales: {viajes_jun[0].id}={viajes_jun[0].estado}, "
+          f"{viajes_jun[1].id}={viajes_jun[1].estado} — revalidación OK")
+
+
 def main():
     print("Iniciando prueba de cierre mensual B2 (CELR v6)...")
     db = SessionLocal()
@@ -320,6 +388,9 @@ def main():
         test_07_d5_odts_ya_liquidadas(client, headers, cond_id, veh_id, v4)
         liq_id2 = test_08_recrear_tras_cancelar(client, headers, cond_id, [v1, v2])
         test_05_cancelar_libera(client, headers, cond_id, liq_id2, [v1, v2], db)
+
+        test_09_cancelar_aprobado_400(client, headers, cond_id, veh_id, v2.id)
+        test_10_cancelar_no_toca_odt_no_liquidada(client, headers, cond_id, [v1, v2], db)
 
         print("\n[TODOS LOS TESTS DE CIERRE MENSUAL PASARON]")
     except Exception as e:
