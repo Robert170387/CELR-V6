@@ -120,11 +120,15 @@ el wiring en el payload y (opcional) una columna de KMS en la tabla.
 
 ---
 
-## 5. Fuera de alcance (documentado, no borrado — futuras fases candidatas)
+## 5. Fases cerradas y fuera de alcance
+
+> ✅ **Cerrada (2026-09-23):** **Gastos + Proveedor en UI** — commit `b7e1cf5`
+> (`feat(frontend): expone proveedor en gastos`). Solo frontend (`Gastos.tsx`); gates verdes:
+> `npm run build` + E2E `--purge` + OpenAPI vivo (`proveedor_id` presente en
+> `GastoCreate`/`GastoUpdate`).
 
 | Fase candidata | Qué implica | Costo |
 |---|---|---|
-| **Gastos + Proveedor en UI** | Exponer `proveedor_id` (FK ya existe) + estados pago `<select>` | Frontend |
 | **Liquidaciones — desglose completo** | Ampliar la UI COMPENSADO_RC existente | Frontend |
 | **Flypass — import + pantalla** | Import CSV/API de `flypass_transacciones` + cruce con gastos peajes | Frontend + decisión de import |
 | **Movimientos bancarios — pantalla** | UI de `movimientos_bancarios` + cruce anticipos | Frontend |
