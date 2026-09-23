@@ -36,6 +36,11 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 - **Trampa:** `backend/.env` trae `DATABASE_URL=...:5432/...` (puerto de `celr_app_v2`). Ejecutar
   siempre con la variable de entorno al stack propio:
   `postgresql://postgres:admin@localhost:5433/celr_v6_db`.
+- **Trampa — frontend Docker:** el `dist` va **horneado** en la imagen nginx (`build.context: ./frontend`,
+  SIN bind mount). Cambios en `frontend/src/**` NO se reflejan en `:5174` hasta
+  `docker compose build frontend && docker compose up -d frontend`. Para desarrollo con HMR usar
+  `npm run dev` (Vite `:3000`, proxy `/api` → `:8000`). Verificado 2026-09-23 (el preview en `:5174`
+  servía un build viejo hasta reconstruir).
 - Migraciones: **Alembic es el mecanismo oficial** (`alembic upgrade head`). `init_db.py`,
   `schema_celr_v6.sql` y `backend/scripts/migrate_*.py`: históricos, NO usarlos en BD nuevas.
 - Baseline estable (verificado): `usuarios=7, vehiculos=9, conductores=7, proveedores=6,
@@ -45,12 +50,17 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 - **Producción (Render):** cada entorno tiene su propia BD, así que `secuencias_documento`
   arranca en cero → los primeros ODT serán `ODT-2026-000001…`. **Es normal, no es un bug**;
   no comparar números ODT entre entornos.
+- **Deuda técnica detectada (2026-09-23):** en el arranque de la app salen
+  `PAGEERROR Failed to execute 'only' on IDBKeyRange` (2 veces, IndexedDB). No bloquea la app
+  (el error se atrapa), pero puede **romper silenciosamente la sincronización offline del PWA**:
+  algo pasa una key inválida (`undefined`/`NaN`/tipo incorrecto) en una consulta indexada de
+  `frontend/src/utils/offlineStore.ts`. Candidato a fase futura (investigación read-only
+  primero, ~15 min); sin urgencia.
 
 ## 5. Estado actual
 
-- Rama `main` = **31 commits por delante de `origin/main`** (FASE A2 + FASE 2 + docs 2.G + alineación ODT + FASE Gastos + FASE Liquidaciones + docs).
-- **Backup remoto:** los 22 commits de FASE A2+FASE 2 están en `origin/fase-a2-fase-2-local` (`e474022`);
-  los 9 de las fases nuevas (alineación ODT + Gastos + Liquidaciones + docs) quedan **solo locales** hasta el merge.
+- Rama `main` = **33 commits por delante de `origin/main`** (FASE A2 + FASE 2 + docs 2.G + alineación ODT + FASE Gastos + FASE Liquidaciones + docs).
+- **Backup remoto:** `origin/fase-a2-fase-2-local` actualizado a **32 commits** (`0bd5d31` — ODT + Gastos + Liquidaciones + docs ya respaldados). El commit de esta sección (hallazgos de sesión) queda **solo local** hasta el merge.
 - Pendiente real: **merge/push a `main`** (PAT del usuario) + deploy manual en Render.
 - **FASE 2 cerrada:**
   | Sub-fase | Commit | Qué cambió |
