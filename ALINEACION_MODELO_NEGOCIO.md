@@ -151,6 +151,75 @@ Reglas que aplican a la ejecución de la fase ODT (y a cualquier fase futura):
 
 ---
 
-## 8. Apéndice
+## 8. Apéndice — requerimiento original (briefing)
 
-_(pendiente: pegar el prompt/requerimiento original del briefing)_
+Texto literal del prompt/briefing de arquitectura que motivó la alineación (pego traza 2026-09-23).
+
+---
+
+> **Instrucción del brief:** Actúa como un Arquitecto de Software Senior y Lead Full-Stack Developer. Tengo
+> un proyecto en desarrollo con su base de datos, backend y frontend ya definidos e iniciados. Necesito
+> acoplar, expandir y refactorizar mi código actual para que se alinee al 100% con el modelo de negocio y
+> flujo contable/operativo real de mi empresa de transporte de carga (Tractocamiones / Flota).
+
+### A. ENTIDAD "ODT" (Órdenes de Transporte / Viajes)
+
+**Inputs manuales:** FECHA CARGA, FECHA DESCARGA, VEHICULO (FK→Vehículos.Placa), CONDUCTOR (FK→Personal.Documento),
+TIPO DE VIAJE (Urbano, Nacional, Internacional, Vacío), ORIGEN/DESTINO, KMS INICIAL TACOMETRO / KMS FINAL TACOMETRO,
+MATERIAL A TRANSPORTAR, FECHA MANIFIESTO, EMPRESA MANIFIESTO / CLIENTE (FK→Proveedores/Clientes), MANIFIESTO
+(número único), PESO DECLARADO MANIFIESTO TON, PESO BASCULA ORIGEN/DESTINO TON, VALOR FLETE MANIFIESTO,
+% RETENCION EN LA FUENTE, % RETENCION ICA, OTRAS DEDUCCIONES, ANTICIPO MANIFIESTO, COMBUSTIBLE TOTAL FACTURAS,
+PEAJES EFECTIVO / PEAJES TAG, OTROS GASTOS RUTA (Cargue, Descargue, Carrozada, Hotel, Parqueadero).
+
+**Calculados:** ID_ODT (autogenerado, ej: ODT-0294); TOTAL KMS RECORRIDOS = KMS_final − KMS_inicial;
+VALOR RETENCION FUENTE = flete × (%retefuente/100); VALOR RETENCION ICA = flete × (%reteica/100);
+TOTAL DEDUCIBLES = retefuente + reteica + otras_deducciones; FLETE NETO = flete − total_deducibles;
+COMISION CONDUCTOR CALCULADA = flete_neto × %comisión; SALDO FLETE ESPERADO = flete_neto − anticipo;
+GASTOS TOTALES VIAJE = Σ(Combustible + Peajes + Cargues/Descargues + Viáticos);
+UTILIDAD NETA ODT = flete_neto − comision − gastos_totales_viaje; AÑO = ExtractYear(FECHA CARGA).
+
+### B. ENTIDAD "DB_INGRESOS" (flujo de caja positivo)
+
+**Inputs:** FECHA, ID_VIAJE (FK opcional→ODT), VEHICULO (FK), CATEGORIA (Anticipo Manifiesto, Saldo Flete,
+Ajuste Flete, Aporte Capital), VALOR, CLIENTE_ORIGEN, MEDIO_PAGO, RECEPTOR_DESTINO, ESTADO (Por cobrar,
+Recibido, Conciliado), CONCEPTO.
+**Calculados:** ID_INGRESO, FECHA MANIFIESTO (heredado de ODT), AÑO.
+
+### C. ENTIDAD "DB_GASTOS" (flujo de caja negativo)
+
+**Inputs:** FECHA, ID_VIAJE (FK opcional→ODT), VEHICULO (FK), CATEGORIA (Combustible, Peajes, Mantenimiento,
+etc.), PROVEEDOR (FK), METODO_PAGO, VALOR, ESTADO (Pagado, Pendiente Por Pagar, Legalizado), CONCEPTO.
+**Calculados:** ID_GASTO, LEGALIZADO (Boolean), AÑO.
+
+### D. INTEGRACIONES Y CONCILIACIONES AUTOMÁTICAS
+
+- **FLYPASS (peajes TAG):** importación/lectura de consumos; LEGALIZADO_EN_GASTOS (Boolean) al vincularse a
+  una ODT/Gasto.
+- **MOV_TARJETA (tarjeta débito conductor):** retiros/compras; CRUZADO (SI/PENDIENTE). Todo retiro en cajero o
+  compra en EDS debe cruzarse automáticamente como ANTICIPO para la liquidación del conductor.
+
+### E. ENTIDAD "COMPENSADO_RC" (liquidación mensual del conductor)
+
+**Inputs:** PERIODO FACTURADO, CONDUCTOR (FK), VEHICULO (FK), SALARIO BASICO, AUXILIO TRANSPORTE, PAPELERIA,
+DESCUENTO SALUD PENSION.
+**Calculados (consolidados del mes):** VIAJES NACIONALES/URBANOS/TOTAL (conteos de ODT del periodo);
+COMISIONES CONDUCTOR TOTAL (Σ comisiones ODT del mes); RETIROS TARJETA DEBITO/ANTICIPOS
+(Σ MOV_TARJETA con CRUZADO='SI' del mes); DEVENGADO TOTAL = comisiones + salario + auxilio + papelería;
+DEDUCCIONES TOTALES = descuento_salud_pension + retiros_tarjeta + gastos_asumidos;
+NETO A PAGAR = devengado − deducciones.
+
+### Reglas de negocio e integridad
+
+1. Relación 1:N: una ODT ↔ N filas DB_INGRESOS y N filas DB_GASTOS.
+2. Unicidad de manifiesto por empresa.
+3. Cruce de tarjeta a anticipos: los retiros de la tarjeta asignada al conductor restan directo en su
+   COMPENSADO_RC mensual.
+4. Cierre operativo ODT: no marcar 'Finalizada' si el saldo flete esperado no concuerda con los ingresos
+   confirmados o si hay peajes Flypass pendientes de legalizar en la ruta.
+
+---
+
+**Nota de trazabilidad:** al cruzar este brief con el repo (2026-09-23, HEAD `ce409ff`), los únicos campos
+de ODT **genuinamente ausentes** del modelo son `combustible_total_facturas`, `peajes_efectivo`,
+`peajes_tag` y `otros_gastos_ruta` (hoy modelados vía `gastos` + `flypass_transacciones`, no como columnas
+de `viajes_odt`). El resto ya existe en backend+schema y el gap es exposición en el form (ver §3).
