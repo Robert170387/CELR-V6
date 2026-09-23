@@ -453,6 +453,25 @@ def obtener_cierre_mensual(
     return liquidacion
 
 
+@router.get("/liquidaciones/cierres-mensuales", response_model=List[CierreMensualResponse])
+def listar_cierres_mensuales(
+    conductor_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """B2 — Lista los cierres mensuales del conductor (más reciente primero)."""
+    return (
+        db.query(LiquidacionConductor)
+        .filter(
+            LiquidacionConductor.conductor_id == conductor_id,
+            LiquidacionConductor.es_cierre_mensual.is_(True),
+            LiquidacionConductor.eliminado_en.is_(None),
+        )
+        .order_by(LiquidacionConductor.periodo_ym.desc())
+        .all()
+    )
+
+
 @router.post("/liquidaciones/{liquidacion_id}/reabrir")
 def reabrir_liquidacion(
     liquidacion_id: int,

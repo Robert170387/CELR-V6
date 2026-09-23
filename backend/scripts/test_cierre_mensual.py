@@ -125,6 +125,23 @@ def test_03_get_cierre_mensual(client, headers, cond_id, liq_id):
     print("  GET otro mes -> 404 OK")
 
 
+def test_03b_listar_cierres(client, headers, cond_id, liq_id):
+    print("\n=== Test 3b: GET /cierres-mensuales (listado) ===")
+    r = client.get(
+        "/api/v1/liquidaciones/cierres-mensuales",
+        params={"conductor_id": cond_id},
+        headers=headers,
+    )
+    assert r.status_code == 200, f"listar fallo: {r.status_code} {r.text}"
+    body = r.json()
+    assert isinstance(body, list) and len(body) >= 1, f"esperaba al menos 1 cierre, obtuve {body}"
+    ids = [c["id"] for c in body]
+    assert liq_id in ids, f"el cierre {liq_id} no aparece en el listado: {ids}"
+    # más reciente primero: primer elemento debe ser el cierre de 2026-06
+    assert body[0]["periodo_ym"] >= body[-1]["periodo_ym"], "orden por periodo descendente roto"
+    print(f"  listado OK: {len(body)} cierre(s), primero={body[0]['periodo_ym']}, ids={ids}")
+
+
 def test_04_cerrar_viaje_bloqueado_409(client, headers, veh_id, viaje_id):
     print("\n=== Test 4: /cerrar/{viaje} de un mes cerrado -> 409 ===")
     r = client.post(
@@ -289,6 +306,7 @@ def main():
         liq_id = test_01_crear_cierre_mensual(client, headers, cond_id, [v1, v2])
         test_02_duplicado_409(client, headers, cond_id)
         test_03_get_cierre_mensual(client, headers, cond_id, liq_id)
+        test_03b_listar_cierres(client, headers, cond_id, liq_id)
 
         # los viajes del mes quedaron liquidados
         db.refresh(v1)

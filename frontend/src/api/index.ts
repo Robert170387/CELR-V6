@@ -115,6 +115,21 @@ export const liquidacionesAPI = {
         params: { conductor_id: conductorId, periodo_inicio: periodoInicio, periodo_fin: periodoFin },
       })
       .then((r) => r.data as CompensadoMensual),
+  // FASE B2 — cierre mensual COMPENSADO_RC persistido
+  cierreMensualCrear: (data: any) =>
+    apiClient.post('/liquidaciones/cierre-mensual', data).then((r) => r.data as CierreMensual),
+  cierreMensualObtener: (conductorId: number, periodoYm: string) =>
+    apiClient
+      .get('/liquidaciones/cierre-mensual', {
+        params: { conductor_id: conductorId, periodo_ym: periodoYm },
+      })
+      .then((r) => r.data as CierreMensual),
+  cierresMensuales: (conductorId: number) =>
+    apiClient
+      .get('/liquidaciones/cierres-mensuales', { params: { conductor_id: conductorId } })
+      .then((r) => r.data as CierreMensual[]),
+  reabrir: (id: number) => apiClient.post(`/liquidaciones/${id}/reabrir`),
+  cancelar: (id: number) => apiClient.post(`/liquidaciones/${id}/cancelar`),
 }
 
 export interface BloqueosCierre {
@@ -134,6 +149,42 @@ export interface CompensadoMensual {
   comisiones_total: string
   retiros_tarjeta_anticipos: string
   odts_incluidas: number[]
+}
+
+// FASE B2 — cierre mensual COMPENSADO_RC persistido en liquidaciones_conductores
+export interface CierreMensual {
+  id: number
+  conductor_id: number
+  vehiculo_id: number | null
+  periodo_inicio: string
+  periodo_fin: string
+  periodo_ym: string
+  es_cierre_mensual: boolean
+  estado: string
+  comision_flete: string
+  comisiones_total: string
+  salario_basico: string
+  auxilio_transporte: string
+  papeleria: string
+  descuento_salud_pension: string
+  retiros_tarjeta_anticipos: string
+  viajes_nacionales: number
+  viajes_urbanos: number
+  total_viajes: number
+  bonificaciones: string
+  viaticos_reconocidos: string
+  otros_haberes: string
+  anticipos_entregados: string
+  gastos_a_cargo_conductor: string
+  prestamos: string
+  otros_descuentos: string
+  total_haberes: string
+  total_descuentos: string
+  saldo_neto: string
+  viajes_ids: number[] | null
+  observaciones: string | null
+  creado_por: number | null
+  aprobado_por: number | null
 }
 
 export const municipiosAPI = {

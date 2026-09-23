@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react'
-import { Calculator, Loader2, AlertCircle, CheckCircle2, XCircle, Lock, TrendingUp, CalendarRange } from 'lucide-react'
-import { viajesAPI, liquidacionesAPI, conductoresAPI, CompensadoMensual } from '@/api'
+import React, { useState, useEffect, useCallback } from 'react'
+import { Calculator, Loader2, AlertCircle, CheckCircle2, XCircle, Lock, TrendingUp, CalendarRange, RotateCcw, Ban, FolderOpen, FileText } from 'lucide-react'
+import { viajesAPI, liquidacionesAPI, conductoresAPI, CompensadoMensual, CierreMensual } from '@/api'
 import { extraerMensajeError, formatearMoneda } from '@/utils/format'
 
 interface Viaje {
@@ -80,6 +80,14 @@ const Liquidaciones: React.FC = () => {
   const [consolError, setConsolError] = useState('')
   const [inputsMensuales, setInputsMensuales] = useState(inicialInputsMensuales)
 
+  // B2 — cierre mensual COMPENSADO_RC persistido
+  const [cierresMensuales, setCierresMensuales] = useState<CierreMensual[]>([])
+  const [cargandoCierres, setCargandoCierres] = useState(false)
+  const [cerrandoMes, setCerrandoMes] = useState(false)
+  const [cierreError, setCierreError] = useState('')
+  const [detalleCierre, setDetalleCierre] = useState<CierreMensual | null>(null)
+  const [accionCierreId, setAccionCierreId] = useState<number | null>(null)
+
   const cargarViajes = async () => {
     setLoading(true)
     setListError('')
@@ -97,6 +105,98 @@ const Liquidaciones: React.FC = () => {
   useEffect(() => {
     cargarViajes()
   }, [])
+
+  const cargarCierresMensuales = useCallback(async (condId: number) => {
+    setCargandoCierres(true)
+    setCierreError('')
+    try {
+      const cierres = await liquidacionesAPI.cierresMensuales(condId)
+      setCierresMensuales(cierres)
+    } catch (err) {
+      setCierresMensuales([])
+      setCierreError(extraerMensajeError(err))
+    } finally {
+      setCargandoCierres(false)
+    }
+  }, [])
+
+  // B2 — al seleccionar conductor se cargan los meses cerrados persistentes
+  useEffect(() => {
+    if (conductorId) {
+      cargarCierresMensuales(Number(conductorId))
+    } else {
+      setCierresMensuales([])
+    }
+    setConsolidado(null)
+    setDetalleCierre(null)
+  }, [conductorId, cargarCierresMensuales])
+
+  const cerrarMes = async () => {
+    if (!conductorId) return
+    setCerrandoMes(true)
+    setCierreError('')
+    setSuccess('')
+    try {
+      const cierre = await liquidacionesAPI.cierreMensualCrear({
+        conductor_id: Number(conductorId),
+        periodo_ym: mes,
+        salario_basico: n(inputsMensuales.salario_basico),
+        auxilio_transporte: n(inputsMensuales.auxilio_transporte),
+        papeleria: n(inputsMensuales.papeleria),
+        descuento_salud_pension: n(inputsMensuales.descuento_salud_pension),
+        bonificaciones: n(inputsMensuales.bonificaciones),
+        viaticos_reconocidos: n(inputsMensuales.viaticos_reconocidos),
+        otros_haberes: n(inputsMensuales.otros_haberes),
+        anticipos_entregados: n(inputsMensuales.anticipos_entregados),
+        gastos_a_cargo_conductor: n(inputsMensuales.gastos_a_cargo_conductor),
+        prestamos: n(inputsMensuales.prestamos),
+        otros_descuentos: n(inputsMensuales.otros_descuentos),
+        observaciones: `Cierre del mes ${mes} generado desde la UI`,
+      })
+      setSuccess(`Cierre mensual ${mes} creado (borrador). Saldo neto: ${formatearMoneda(cierre.saldo_neto)}`)
+      setDetalleCierre(cierre)
+      await cargarCierresMensuales(Number(conductorId))
+      if (consolidado) {
+        const { inicio, fin } = limitesMes(mes)
+        const res = await liquidacionesAPI.compensado(Number(conductorId), inicio, fin)
+        setConsolidado(res)
+      }
+    } catch (err) {
+      setCierreError(extraerMensajeError(err))
+    } finally {
+      setCerrandoMes(false)
+    }
+  }
+
+  const reabrirCierre = async (id: number) => {
+    setAccionCierreId(id)
+    setCierreError('')
+    setSuccess('')
+    try {
+      const res = await liquidacionesAPI.reabrir(id)
+      setSuccess(res.data.mensaje)
+      if (conductorId) await cargarCierresMensuales(Number(conductorId))
+    } catch (err) {
+      setCierreError(extraerMensajeError(err))
+    } finally {
+      setAccionCierreId(null)
+    }
+  }
+
+  const cancelarCierre = async (id: number) => {
+    setAccionCierreId(id)
+    setCierreError('')
+    setSuccess('')
+    try {
+      const res = await liquidacionesAPI.cancelar(id)
+      setSuccess(res.data.mensaje)
+      if (conductorId) await cargarCierresMensuales(Number(conductorId))
+    } catch (err) {
+      setCierreError(extraerMensajeError(err))
+    } finally {
+      setAccionCierreId(null)
+    }
+  }
 
   const viajeSeleccionado = viajes.find((v) => String(v.id) === viajeId)
 
@@ -158,6 +258,7 @@ const Liquidaciones: React.FC = () => {
     if (!conductorId) return
     setConsolidando(true)
     setConsolError('')
+    setCierreError('')
     setSuccess('')
     try {
       const { inicio, fin } = limitesMes(mes)
@@ -362,8 +463,8 @@ const Liquidaciones: React.FC = () => {
           COMPENSADO_RC Mensual
         </h3>
         <p className="text-sm text-slate-400 mb-4">
-          Consolidados automáticos del mes (comisiones, conteo de viajes y retiros de tarjeta). El cierre formal se hace
-          por ODT en la sección superior; al cerrar se guardan los consolidados del periodo.
+          Consolidados automáticos del mes (comisiones, conteo de viajes y retiros de tarjeta). El cierre formal del
+          mes se persiste con «Cerrar mes»; los viajes del periodo quedan liquidados y bloqueados para cierre individual.
         </p>
 
         <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
@@ -496,13 +597,243 @@ const Liquidaciones: React.FC = () => {
                 {formatearMoneda(netoMensual)}
               </span>
             </div>
+
+            {/* B2 — cerrar el mes formalmente (persiste la liquidación mensual) */}
+            {cierresMensuales.some((c) => c.periodo_ym === mes) ? (
+              <div className="mt-4 flex items-start gap-2 bg-yellow-500/10 border border-yellow-500/30 text-yellow-500 px-4 py-3 rounded-lg">
+                <AlertCircle size={18} className="mt-0.5 shrink-0" />
+                <span>
+                  El mes {mes} ya tiene un cierre{' '}
+                  {cierresMensuales.find((c) => c.periodo_ym === mes)?.estado}. Revisá «Meses cerrados» para
+                  detalle, reabrir o cancelar.
+                </span>
+              </div>
+            ) : (
+              <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
+                <button
+                  onClick={cerrarMes}
+                  disabled={cerrandoMes}
+                  className="btn-celr flex items-center gap-2 disabled:opacity-50"
+                >
+                  {cerrandoMes ? <Loader2 className="animate-spin" size={20} /> : <Lock size={20} />}
+                  {cerrandoMes ? 'Cerrando mes...' : 'Cerrar mes'}
+                </button>
+              </div>
+            )}
+            {cierreError && (
+              <div className="flex items-center gap-2 bg-danger-500/10 border border-danger-500/30 text-danger-500 px-4 py-3 rounded-lg mt-4">
+                <AlertCircle size={18} />
+                <span>{cierreError}</span>
+              </div>
+            )}
             <p className="text-xs text-slate-500 mt-2">
-              Vista previa calculada con la misma fórmula del servidor (devengado − deducciones). Los valores
-              definitivos los deriva el backend al cerrar la liquidación de cada ODT del periodo.
+              Vista previa calculada con la misma fórmula del servidor (devengado − deducciones). «Cerrar mes»
+              persiste la liquidación en borrador y los valores definitivos los deriva el backend del consolidado real.
             </p>
           </>
         )}
       </div>
+
+      {/* B2 — Meses cerrados (liquidaciones mensuales persistidas del conductor) */}
+      <div className="card-truck">
+        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <FolderOpen size={20} />
+          Meses cerrados
+        </h3>
+        <p className="text-sm text-slate-400 mb-4">
+          Cierres mensuales persistidos del conductor seleccionado. El borrador bloquea el cierre individual de sus
+          viajes; lo aprobado indica liquidación mensual firme.
+        </p>
+
+        {!conductorId ? (
+          <p className="text-sm text-slate-500">Selecciona un conductor para ver sus meses cerrados.</p>
+        ) : cargandoCierres ? (
+          <div className="flex items-center justify-center py-6 text-slate-400">
+            <Loader2 className="animate-spin mr-2" size={20} />
+            Cargando meses cerrados...
+          </div>
+        ) : cierresMensuales.length === 0 ? (
+          <p className="text-sm text-slate-500">Este conductor no tiene cierres mensuales persistidos todavía.</p>
+        ) : (
+          <div className="space-y-3">
+            {cierresMensuales.map((c) => (
+              <div key={c.id} className="rounded-lg bg-slate-800/40 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-lg font-bold text-white">{c.periodo_ym}</span>
+                    <span
+                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                        c.estado === 'aprobado'
+                          ? 'bg-green-500/15 text-green-400'
+                          : 'bg-yellow-500/15 text-yellow-400'
+                      }`}
+                    >
+                      {c.estado === 'aprobado' ? 'Aprobado' : 'Borrador'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setDetalleCierre(c)}
+                      disabled={accionCierreId !== null}
+                      className="flex items-center gap-1.5 text-sm text-slate-300 hover:text-white disabled:opacity-50 px-3 py-1.5 rounded-lg border border-slate-700 hover:border-slate-500"
+                    >
+                      <FileText size={15} />
+                      Detalle
+                    </button>
+                    {c.estado === 'aprobado' && (
+                      <button
+                        onClick={() => reabrirCierre(c.id)}
+                        disabled={accionCierreId !== null}
+                        className="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 disabled:opacity-50 px-3 py-1.5 rounded-lg border border-blue-500/30 hover:border-blue-500/60"
+                      >
+                        {accionCierreId === c.id ? (
+                          <Loader2 className="animate-spin" size={15} />
+                        ) : (
+                          <RotateCcw size={15} />
+                        )}
+                        Reabrir
+                      </button>
+                    )}
+                    {c.estado === 'borrador' && (
+                      <button
+                        onClick={() => cancelarCierre(c.id)}
+                        disabled={accionCierreId !== null}
+                        className="flex items-center gap-1.5 text-sm text-danger-500 hover:text-danger-400 disabled:opacity-50 px-3 py-1.5 rounded-lg border border-danger-500/30 hover:border-danger-500/60"
+                      >
+                        {accionCierreId === c.id ? (
+                          <Loader2 className="animate-spin" size={15} />
+                        ) : (
+                          <Ban size={15} />
+                        )}
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                  <div>
+                    <p className="text-xs text-slate-400">Viajes</p>
+                    <p className="text-white font-semibold">{c.total_viajes}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">Comisiones mes</p>
+                    <p className="text-blue-400 font-semibold">{formatearMoneda(c.comisiones_total)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">Total haberes</p>
+                    <p className="text-white font-semibold">{formatearMoneda(c.total_haberes)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">Saldo neto</p>
+                    <p className={`font-semibold ${Number(c.saldo_neto) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {formatearMoneda(c.saldo_neto)}
+                    </p>
+                  </div>
+                </div>
+                {c.observaciones && <p className="mt-2 text-xs text-slate-500 whitespace-pre-line">{c.observaciones}</p>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* B2 — Detalle del cierre mensual seleccionado */}
+      {detalleCierre && (
+        <div className="card-truck">
+          <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <FileText size={20} />
+            Detalle del cierre {detalleCierre.periodo_ym}
+          </h3>
+          <div className="divide-y divide-slate-800 text-sm">
+            <div className="flex items-center justify-between py-2">
+              <span className="text-slate-400">Periodo</span>
+              <span className="text-white">
+                {detalleCierre.periodo_inicio} → {detalleCierre.periodo_fin}
+              </span>
+            </div>
+            <div className="flex items-center justify-between py-2">
+              <span className="text-slate-400">Estado</span>
+              <span className={detalleCierre.estado === 'aprobado' ? 'text-green-400' : 'text-yellow-400'}>
+                {detalleCierre.estado === 'aprobado' ? 'Aprobado' : 'Borrador'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between py-2">
+              <span className="text-slate-400">Viajes del mes</span>
+              <span className="text-white">
+                {detalleCierre.viajes_nacionales} nacionales · {detalleCierre.viajes_urbanos} urbanos ·{' '}
+                {detalleCierre.total_viajes} total
+              </span>
+            </div>
+            <div className="flex items-center justify-between py-2">
+              <span className="text-slate-400">Comisiones (consolidado)</span>
+              <span className="text-blue-400">{formatearMoneda(detalleCierre.comisiones_total)}</span>
+            </div>
+            <div className="flex items-center justify-between py-2">
+              <span className="text-slate-400">Salario básico</span>
+              <span className="text-white">{formatearMoneda(detalleCierre.salario_basico)}</span>
+            </div>
+            <div className="flex items-center justify-between py-2">
+              <span className="text-slate-400">Auxilio de transporte</span>
+              <span className="text-white">{formatearMoneda(detalleCierre.auxilio_transporte)}</span>
+            </div>
+            <div className="flex items-center justify-between py-2">
+              <span className="text-slate-400">Papelería</span>
+              <span className="text-white">{formatearMoneda(detalleCierre.papeleria)}</span>
+            </div>
+            <div className="flex items-center justify-between py-2">
+              <span className="text-slate-400">Bonificaciones, viáticos y otros haberes</span>
+              <span className="text-white">
+                {formatearMoneda(
+                  Number(detalleCierre.bonificaciones) +
+                    Number(detalleCierre.viaticos_reconocidos) +
+                    Number(detalleCierre.otros_haberes)
+                )}
+              </span>
+            </div>
+            <div className="flex items-center justify-between py-2">
+              <span className="text-slate-400">Total haberes (devengado)</span>
+              <span className="font-semibold text-white">{formatearMoneda(detalleCierre.total_haberes)}</span>
+            </div>
+            <div className="flex items-center justify-between py-2">
+              <span className="text-slate-400">Retiros tarjeta / anticipos del mes</span>
+              <span className="text-orange-400">{formatearMoneda(detalleCierre.retiros_tarjeta_anticipos)}</span>
+            </div>
+            <div className="flex items-center justify-between py-2">
+              <span className="text-slate-400">Salud y pensión</span>
+              <span className="text-orange-400">{formatearMoneda(detalleCierre.descuento_salud_pension)}</span>
+            </div>
+            <div className="flex items-center justify-between py-2">
+              <span className="text-slate-400">Anticipos entregados</span>
+              <span className="text-orange-400">{formatearMoneda(detalleCierre.anticipos_entregados)}</span>
+            </div>
+            <div className="flex items-center justify-between py-2">
+              <span className="text-slate-400">Gastos a cargo del conductor</span>
+              <span className="text-orange-400">{formatearMoneda(detalleCierre.gastos_a_cargo_conductor)}</span>
+            </div>
+            <div className="flex items-center justify-between py-2">
+              <span className="text-slate-400">Préstamos y otros descuentos</span>
+              <span className="text-orange-400">
+                {formatearMoneda(Number(detalleCierre.prestamos) + Number(detalleCierre.otros_descuentos))}
+              </span>
+            </div>
+            <div className="flex items-center justify-between py-2">
+              <span className="text-slate-400">Total descuentos</span>
+              <span className="font-semibold text-orange-400">{formatearMoneda(detalleCierre.total_descuentos)}</span>
+            </div>
+          </div>
+          <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-600">
+            <span className="text-base font-semibold text-white">Saldo neto del mes</span>
+            <span
+              className={`text-2xl font-bold ${Number(detalleCierre.saldo_neto) >= 0 ? 'text-green-400' : 'text-red-400'}`}
+            >
+              {formatearMoneda(detalleCierre.saldo_neto)}
+            </span>
+          </div>
+          {detalleCierre.observaciones && (
+            <p className="mt-3 text-xs text-slate-500 whitespace-pre-line">{detalleCierre.observaciones}</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
