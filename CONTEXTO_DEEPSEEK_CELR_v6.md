@@ -275,10 +275,10 @@ a1b2c3d4e5f6  (head) — FASE A2: modelo contable/operativo
 rama local  = main
 HEAD local  = 962ee79  (FASE 2.D - fix frontend offlineStore)
 origin/main = 317fbe2  (feat: gastos sin ODT, página de ingresos, ...)
-local adelante = 15 commits — SIN PUSH aun
-                 (FASE A2: b802d82 → e45adb7 → dcd03b5 → baa2933 → 64a2fa9 → 1da3b0b →
-                  8b36f17 → b9e665e → 5738e51)
-                 (FASE 2:  165078e → 2e38ee4 → e0bf6bd → a73c952 → 962ee79)
+local adelante = 20 commits — SIN PUSH aun
+                 (FASE A2:  9 commits, b802d82 → … → 5738e51)
+                 (FASE 2.0-2.D: 165078e → 2e38ee4 → e0bf6bd → a73c952 → 962ee79)   [5]
+                 (docs/higiene 2.G: 3fdbb32 → c6fb07f → 62ca791 → d722f94 → d3b9557 → +1 sincronización) [6]
 working tree = limpio (solo los CONTEXTO_*.md untracked, no modificados)
 ```
 
