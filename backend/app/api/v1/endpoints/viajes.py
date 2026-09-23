@@ -134,9 +134,11 @@ def actualizar_viaje(
     validar_manifiesto_unico(
         db, db_viaje.num_manifiesto, db_viaje.empresa_manifiesto_id, viaje_id=db_viaje.id
     )
-    db.flush()
-    recalcular_viaje(db, db_viaje)
+    # El flush() es el que revienta la FK si vehiculo/conductor no existe:
+    # flush + commit deben ir dentro del try para mapear IntegrityError -> 404.
     try:
+        db.flush()
+        recalcular_viaje(db, db_viaje)
         db.commit()
     except IntegrityError:
         db.rollback()

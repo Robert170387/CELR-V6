@@ -44,7 +44,13 @@ def registrar_gasto(
     autocompletar_municipio_texto(db, data, "ciudad_abastecimiento", "ciudad_abastecimiento_municipio_id")
     hash_comprobante = _calcular_hash_gasto(db, data, viaje_id=data.get("viaje_id"))
     data["hash_comprobante"] = hash_comprobante
-    existing = db.query(Gasto).filter(Gasto.hash_comprobante == hash_comprobante).first()
+    # Solo los gastos vivos cuentan como duplicado (un soft-delete no debe
+    # bloquear volver a registrar el mismo comprobante).
+    existing = (
+        db.query(Gasto)
+        .filter(Gasto.hash_comprobante == hash_comprobante, Gasto.eliminado_en.is_(None))
+        .first()
+    )
     if existing:
         raise HTTPException(status_code=400, detail="Gasto duplicado detectado")
     if not data.get("reportado_por"):
@@ -221,6 +227,16 @@ def actualizar_gasto(
         raise HTTPException(status_code=404, detail="Gasto no encontrado")
     update_data = gasto.model_dump(exclude_unset=True)
     viaje_original_id = db_gasto.viaje_id
+    # Validacion explicita de las FKs entrantes ANTES de mutar el objeto: si el
+    # viaje/vehiculo no existe, 404 inmediato. Sin esto, el autoflush de las
+    # queries siguientes (dupe/hash, km, recálculo FASE A2) reventaria contra la
+    # BD con un IntegrityError fuera del try -> 500 en vez de 404.
+    if update_data.get("viaje_id") is not None:
+        if not db.query(ViajeODT).filter(ViajeODT.id == update_data["viaje_id"]).first():
+            raise HTTPException(status_code=404, detail="El viaje especificado no existe")
+    if update_data.get("vehiculo_id") is not None:
+        if not db.query(Vehiculo).filter(Vehiculo.id == update_data["vehiculo_id"]).first():
+            raise HTTPException(status_code=404, detail="El vehículo especificado no existe")
     for key, value in update_data.items():
         setattr(db_gasto, key, value)
     autocompletar_municipio_orm(db, db_gasto, "ciudad_abastecimiento", "ciudad_abastecimiento_municipio_id")
@@ -241,6 +257,7 @@ def actualizar_gasto(
             .filter(
                 Gasto.hash_comprobante == nuevo_hash,
                 Gasto.id != db_gasto.id,
+                Gasto.eliminado_en.is_(None),
             )
             .first()
         )

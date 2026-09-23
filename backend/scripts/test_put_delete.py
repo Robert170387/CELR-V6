@@ -64,7 +64,7 @@ def main():
         creados["viaje"].append(viaje["id"])
         gasto = post("/api/v1/gastos", {"viaje_id": viaje["id"], "vehiculo_id": veh["id"], "categoria": "combustible", "fecha_gasto": "2026-09-16", "valor_total": 200000}, headers)
         creados["gasto"].append(gasto["id"])
-        ingreso = post("/api/v1/ingresos", {"viaje_id": viaje["id"], "vehiculo_id": veh["id"], "tipo_ingreso": "anticipo", "fecha_ingreso": "2026-09-16", "valor": 100000}, headers)
+        ingreso = post("/api/v1/ingresos", {"viaje_id": viaje["id"], "vehiculo_id": veh["id"], "tipo_ingreso": "anticipo_manifiesto", "fecha_ingreso": "2026-09-16", "valor": 100000, "estado_pago": "recibido"}, headers)
         creados["ingreso"].append(ingreso["id"])
         print(f"  vehiculo={veh['id']}, conductor={cond['id']}, proveedor={prov['id']}, viaje={viaje['id']}, gasto={gasto['id']}, ingreso={ingreso['id']}")
 

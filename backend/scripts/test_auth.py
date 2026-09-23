@@ -178,6 +178,8 @@ def test_cambio_contrasena_y_rate_limit():
     db = SL()
     try:
         # Usuario dedicado para el flujo de cambio de contraseña
+        # Idempotencia: el test rota la contrasena cada corrida, asi que al
+        # re-ejecutarlo sobre una BD sucia se restaura la contrasena inicial.
         rate_user = db.query(UsuarioModel).filter(UsuarioModel.correo == "ratelimit@celr.com").first()
         if not rate_user:
             rate_user = UsuarioModel(
@@ -188,8 +190,11 @@ def test_cambio_contrasena_y_rate_limit():
                 debe_cambiar_contrasena=True,
             )
             db.add(rate_user)
-            db.commit()
-            db.refresh(rate_user)
+        else:
+            rate_user.contrasena_hash = hash_password("old123")
+            rate_user.debe_cambiar_contrasena = True
+        db.commit()
+        db.refresh(rate_user)
     finally:
         db.close()
 

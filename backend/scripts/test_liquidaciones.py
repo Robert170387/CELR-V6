@@ -11,6 +11,7 @@ from app.models.flota import Vehiculo, Conductor, Usuario as UsuarioModel
 from app.models.operaciones import ViajeODT, Gasto
 from app.models.financiero import Ingreso, LiquidacionConductor
 from app.schemas.liquidacion import LiquidacionCreate
+from app.services.operaciones import recalcular_viaje
 
 
 def seed(db: Session):
@@ -40,11 +41,14 @@ def create_test_viaje(db: Session, veh_id: int, cond_id: int):
         destino="Medellin",
         fecha_salida=date(2026, 9, 16),
         valor_flete_manifiesto=Decimal("1000000.00"),
-        retefuente_valor=Decimal("100000.00"),
-        reteica_valor=Decimal("50000.00"),
+        # FASE A2: el cliente envia los PORCENTAJES; los valores los deriva el servidor (10% y 5%)
+        retefuente_porcentaje=Decimal("10.00"),
+        reteica_porcentaje=Decimal("5.00"),
         estado="en_curso",
     )
     db.add(viaje)
+    db.flush()
+    recalcular_viaje(db, viaje)
     db.commit()
     db.refresh(viaje)
     print(f"Viaje creado: id={viaje.id}, numero_odt={viaje.numero_odt}, flete_neto={viaje.flete_neto}")
@@ -80,12 +84,12 @@ def create_test_gastos(db: Session, viaje_id: int, veh_id: int, cond_id: int):
     return gasto1, gasto2
 
 
-def create_test_ingreso(db: Session, viaje_id: int):
+def create_test_ingreso(db: Session, viaje_id: int, veh_id: int):
     print("\n=== Crear anticipo de prueba ===")
     ing = Ingreso(
-        viaje_id=viaje_id, vehiculo_id=1, tipo_ingreso="anticipo",
+        viaje_id=viaje_id, vehiculo_id=veh_id, tipo_ingreso="anticipo_manifiesto",
         fecha_ingreso=date(2026, 9, 16), valor=Decimal("100000.00"),
-        descripcion="Anticipo de flete",
+        descripcion="Anticipo de flete", estado_pago="recibido",
     )
     db.add(ing)
     db.commit()
@@ -159,7 +163,7 @@ def main():
         veh_id, cond_id = seed(db)
         viaje = create_test_viaje(db, veh_id, cond_id)
         create_test_gastos(db, viaje.id, veh_id, cond_id)
-        create_test_ingreso(db, viaje.id)
+        create_test_ingreso(db, viaje.id, veh_id)
         test_calcular_liquidacion(db, viaje.id)
         viaje2 = create_test_viaje_extra(db, veh_id, cond_id)
         test_cerrar_comision_incorrecta(db, viaje2, cond_id, veh_id, admin)
@@ -201,11 +205,13 @@ def create_test_viaje_extra(db: Session, veh_id: int, cond_id: int) -> ViajeODT:
         destino="Cali",
         fecha_salida=date(2026, 9, 17),
         valor_flete_manifiesto=Decimal("1000000.00"),
-        retefuente_valor=Decimal("100000.00"),
-        reteica_valor=Decimal("50000.00"),
+        retefuente_porcentaje=Decimal("10.00"),
+        reteica_porcentaje=Decimal("5.00"),
         estado="en_curso",
     )
     db.add(viaje)
+    db.flush()
+    recalcular_viaje(db, viaje)
     db.commit()
     db.refresh(viaje)
     return viaje

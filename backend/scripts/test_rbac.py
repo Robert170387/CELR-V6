@@ -40,7 +40,12 @@ def seed_usuario(db, correo: str, rol: str) -> UsuarioModel:
 
 
 def token_for(usuario: UsuarioModel) -> dict:
-    tok = create_access_token({"usuario_id": usuario.id, "correo": usuario.correo})
+    # Mismos claims que emite /auth/login (password_version valida la sesion S2)
+    tok = create_access_token({
+        "usuario_id": usuario.id,
+        "correo": usuario.correo,
+        "password_version": usuario.password_version,
+    })
     return {"Authorization": f"Bearer {tok}"}
 
 

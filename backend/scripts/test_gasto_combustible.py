@@ -113,9 +113,12 @@ def main():
     assert abs(km_final - km_tras_g2) < 0.01, "km_actual retrocedio con un km_registro menor"
 
     # 4) PUT convierte G1 en inconsistente -> observado
+    #    Valor propio de la corrida (rango 40000-40039) para no colisionar en
+    #    hash anti-duplicados con G2 (50000-50059) ni con corridas previas.
+    put_valor = 40000 + (suf_int % 40)
     r = CLIENT.put(
         f"/api/v1/gastos/{g1['id']}",
-        json={"cantidad_galones": 10.0, "precio_por_galon": 10000.0, "valor_total": 50000},
+        json={"cantidad_galones": 10.0, "precio_por_galon": 10000.0, "valor_total": put_valor},
         headers=headers,
     )
     assert r.status_code == 200, f"PUT esperaba 200, obtuvo {r.status_code}: {r.text}"

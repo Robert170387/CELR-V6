@@ -53,8 +53,9 @@ def test_02_create_viaje(headers):
         "destino": "Medellin",
         "fecha_salida": "2026-09-16",
         "valor_flete_manifiesto": "1000000.00",
-        "retefuente_valor": "100000.00",
-        "reteica_valor": "50000.00",
+        # FASE A2: el cliente envia SOLO los porcentajes; los valores los deriva el servidor (10% y 5%)
+        "retefuente_porcentaje": 10.0,
+        "reteica_porcentaje": 5.0,
         "estado": "en_curso",
     }
     r = requests.post(f"{BASE_URL}/api/v1/viajes", json=viaje_data, headers=headers)

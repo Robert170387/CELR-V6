@@ -182,9 +182,10 @@ class OCRService:
             hash_comprobante = result["hash_comprobante"]
         result["hash_comprobante"] = hash_comprobante
 
+        # Solo los gastos vivos cuentan como duplicado (consistente con POST /gastos).
         existing = (
             self.db.query(Gasto)
-            .filter(Gasto.hash_comprobante == hash_comprobante)
+            .filter(Gasto.hash_comprobante == hash_comprobante, Gasto.eliminado_en.is_(None))
             .first()
         )
         if existing:

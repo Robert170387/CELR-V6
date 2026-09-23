@@ -61,7 +61,7 @@ def _calcular_servidor(db: Session, viaje: ViajeODT) -> dict:
         .filter(
             and_(
                 Ingreso.viaje_id == viaje.id,
-                Ingreso.tipo_ingreso == "anticipo",
+                Ingreso.tipo_ingreso == "anticipo_manifiesto",
                 Ingreso.eliminado_en.is_(None),
             )
         )
