@@ -19,9 +19,11 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 
 ## 3. Gates antes de commitear
 
-1. **Backend:** las 8 suites `backend/scripts/test_*.py` en verde (desde `backend/`, con
+1. **Backend:** las **9** suites `backend/scripts/test_*.py` en verde (desde `backend/`, con
    `PYTHONPATH=.` y `DATABASE_URL` → `:5433`), con el venv:
-   `venv\Scripts\python.exe scripts\test_<suite>.py`
+   `venv\Scripts\python.exe scripts\test_<suite>.py` — los scripts imprimen checks `✓`/`✗`;
+   bajo pipe en Windows ejecutar con `$env:PYTHONIOENCODING="utf-8"` (cp1252 rompe esos
+   caracteres). `test_cierre_mensual.py` es la suite de la FASE B2.
 2. **Humo:** `venv\Scripts\python.exe scripts\smoke.py` → `[SMOKE OK]`.
 3. **E2E** (servidor vivo, p. ej. Docker `:8001`):
    `$env:CELR_BASE_URL="http://localhost:8001"; $env:PYTHONUTF8="1";
@@ -97,6 +99,13 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
   | Sub-fase | Commit | Qué cambió |
   |---|---|---|
   | Fix cola offline | `172e38f` | `offlineStore.ts`: `getUnsyncedTransactions()`/`clearSyncedTransactions()` pasan de `index('synced').getAll(only(false/true))` (DataError: booleans no son claves IDB) a `getAll()` + `filter`/`delete` en memoria; índice `'synced'` declarado sin uso; gates build+E2E `--purge`+baseline+PAGEERROR ausente verdes |
+- **FASE B2 (cierre mensual COMPENSADO_RC) cerrada:**
+  | Sub-fase | Commit | Qué cambió |
+  |---|---|---|
+  | 1 migración+modelo | `1a11e18` | `f2e1d0c9b8a7_b2_cierre_mensual_compensado.py` (`es_cierre_mensual`, `periodo_ym` GENERATED STORED, `vehiculo_id` NULL, UNIQUE parcial) + modelo `LiquidacionConductor` |
+  | 2 endpoints+tests | `61a56be` | `POST/GET /liquidaciones/cierre-mensual`, `GET /liquidaciones/cierres-mensuales`, `POST /{id}/reabrir`, `POST /{id}/cancelar`, 409 en `/cerrar/{viaje_id}`; schemas `CierreMensualCreate/Response`; suite nueva `test_cierre_mensual.py` |
+  | 3 UI frontend | `2131127` | `Liquidaciones.tsx`: «Cerrar mes» + «Meses cerrados» (Detalle/Reabrir/Cancelar); `api/index.ts` (`CierreMensual` + métodos) |
+  | 4 docs | *(este commit)* | Sección B2 en `ALINEACION_MODELO_NEGOCIO.md` §5 + pipeline/nota `PYTHONIOENCODING` aquí (§3) |
 
 ## 6. Pendientes (GitHub / Render)
 
@@ -110,8 +119,10 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
    `alembic upgrade head && seed.py && scripts/seed_municipios.py`. No hacer sin credenciales.
 3. **Decidir el usuario `cliente@celr.com`:** no existe en la BD y `seed.py` no lo crea. Si el
    negocio lo requiere, registrar rol `cliente` o extender el seed (con autorización).
-4. **COMPENSADO_RC mensual:** hoy es GET solo lectura; falta decidir si se persiste el cierre
-   mensual (preguntar al usuario antes de diseñarlo).
+4. ~~COMPENSADO_RC mensual: GET solo lectura, sin persistir~~ → **HECHO (FASE B2, 2026-09-23):**
+   el cierre mensual se **persiste** en `liquidaciones_conductores` (`es_cierre_mensual` +
+   `periodo_ym`) vía `POST/GET /liquidaciones/cierre-mensual`, con reapertura/cancelación y
+   bloqueo 409. Ver `ALINEACION_MODELO_NEGOCIO.md` §5.
 5. **Residuo 2.E:** los 6 usuarios históricos pueden borrarse si el negocio lo pide (con OK).
 
 ## 7. Decisiones registradas en FASE 2
@@ -133,10 +144,13 @@ consultor previo dejó el marco; quien retome el proyecto debe cerrarlas con el 
 | # | Pregunta | Implica si se acepta |
 |---|---|---|
 | **B1** | ¿Rol `cliente` en seed? | Lógica de seed + credencial de prueba documentada. Riesgo mínimo. |
-| **B2** | ¿Persistir cierre mensual COMPENSADO_RC? | **Migración nueva** + tabla + endpoint POST + UI. Proyecto pequeño. |
 | **B3** | ¿Refresh token a cookie `HttpOnly`? | **Rompe el offline del PWA.** Trade-off explícito. |
 | **B4** | ¿Rate limiter distribuido? | Redis o tabla DB → **migración** + infra. Solo multi-instancia. |
 | **B5** | ¿OCR Google Vision o Tesseract local? | Código comentado; activar = dependencia cloud + credenciales. |
 
-Prioridad sugerida por el consultor previo: **B2 primero** (única con impacto funcional real hoy);
-B3 y B4 como deuda de seguridad/arquitectura al escalar; B1 y B5 cuando surja la necesidad.
+> **B2 quedó resuelta (2026-09-23):** persiste el cierre mensual COMPENSADO_RC con **Opción 1**
+> (reforzar `liquidaciones_conductores`, D5-c → 409 preventivo, reabrir/cancelar con rastro). Ver
+> FASE B2 en §5 y `ALINEACION_MODELO_NEGOCIO.md` §5.
+
+Prioridad actual: de las restantes, **B3 y B4** son deuda de seguridad/arquitectura al escalar;
+**B1** y **B5** cuando surja la necesidad.

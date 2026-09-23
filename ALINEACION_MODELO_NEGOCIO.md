@@ -120,7 +120,60 @@ el wiring en el payload y (opcional) una columna de KMS en la tabla.
 
 ---
 
-## 5. Fases cerradas y fuera de alcance
+## 5. FASE B2 — Persistir el cierre mensual COMPENSADO_RC — ✅ HECHO (2026-09-23)
+
+> **Decisión de negocio aprobada:** **Opción 1** — reforzar `liquidaciones_conductores`, sin tabla
+> nueva. El "mes" = la liquidación del conductor. El cierre se **persiste** con rastro
+> (`es_cierre_mensual` + `periodo_ym`), se **bloquea** mientras existe, y se puede **reabrir** y
+> **cancelar**; la UI expone «Cerrar mes» y «Meses cerrados».
+
+### 5.1 Decisiones registradas B2
+
+| Decisión | Elección | Nota |
+|---|---|---|
+| Modelo de cierre | **Opción 1** — fila en `liquidaciones_conductores` | Sin tabla nueva; mes = liquidación del conductor (`LiquidacionConductor`) |
+| Vehículo en el cierre | `vehiculo_id = NULL` | Migración hace `DROP NOT NULL`; el cierre es del conductor, no de un vehículo |
+| ODTs del rango ya liquidadas | **D5 = (c)** → HTTP 409 | El cierre mensual falla con 409 si hay ODTs del periodo ya liquidadas individualmente |
+| Borrador de cierre | **También bloquea** `/cerrar/{viaje_id}` | `POST /liquidaciones/{id}/cancelar` (solo `borrador`) libera el rango |
+| Comisión en el cierre | `comision_flete := comisiones_total` del mes | Fuente de verdad: `operaciones.consolidar_compensado` |
+| Clave de periodo | `periodo_ym` **GENERATED STORED** inmutable | `EXTRACT` + `LPAD` (año-mes `YYYY-MM`); `to_char` lo rechaza PG (no es inmutable estable) |
+| UNIQUE por periodo | `ux_liquidaciones_mes_cierre` parcial | `(conductor_id, periodo_ym) WHERE es_cierre_mensual AND eliminado_en IS NULL` |
+
+### 5.2 Sub-fases ejecutadas
+
+| Sub-fase | Commit | Qué cambió |
+|---|---|---|
+| 1 — Migración + modelo | `1a11e18` | `f2e1d0c9b8a7_b2_cierre_mensual_compensado.py` (columna `es_cierre_mensual`, `periodo_ym` GENERATED STORED, `vehiculo_id` nullable, UNIQUE parcial) + modelo `LiquidacionConductor` |
+| 2 — Endpoints + tests | `61a56be` | `POST/GET /liquidaciones/cierre-mensual`, `GET /liquidaciones/cierres-mensuales`, `POST /{id}/reabrir`, `POST /{id}/cancelar`; 409 en `/cerrar/{viaje_id}`; schemas `CierreMensualCreate/Response`; suite nueva `scripts/test_cierre_mensual.py` |
+| 3 — UI frontend | `2131127` | `Liquidaciones.tsx`: botón «Cerrar mes» + sección «Meses cerrados» (Detalle / Reabrir / Cancelar); `api/index.ts` (interfaz `CierreMensual` + métodos) |
+| 4 — Docs | *(este commit)* | Esta sección + pipeline/nota `PYTHONIOENCODING` en `INSTRUCCIONES_OPENCODE.md` |
+
+### 5.3 Flujo del cierre mensual
+
+1. **Crear:** `POST /api/v1/liquidaciones/cierre-mensual` con `{conductor_id, periodo, borrador}`.
+   Falla con **409 (D5-c)** si en el rango del periodo hay ODTs ya liquidadas individualmente.
+   Crea la fila `es_cierre_mensual=True` con `periodo_ym` derivado y copia los consolidados del
+   COMPENSADO_RC mensual (`comision_flete := comisiones_total`, etc.).
+2. **Bloqueo:** mientras el cierre exista (`borrador` o `cerrado`), `/cerrar/{viaje_id}` de
+   cualquier ODT del rango responde **409** — el rango está reservado por el cierre mensual. El
+   check del 409 va **antes** del 400 por estado `liquidado` (el cierre marca las ODT así; el
+   orden original enmascaraba la causa real).
+3. **Listar:** `GET /liquidaciones/cierres-mensuales?conductor_id=` devuelve los meses cerrados,
+   más reciente primero — alimenta el listado «Meses cerrados» de la UI.
+4. **Reabrir:** `POST /liquidaciones/{id}/reabrir` (solo estado `cerrado`; el rastro queda en el
+   historial de estados).
+5. **Cancelar:** `POST /liquidaciones/{id}/cancelar` (solo estado `borrador`) libera el rango y
+   deja liquidar las ODT individualmente de nuevo.
+
+### 5.4 Gates verdes por sub-fase
+
+- **1:** `alembic upgrade head` aplicada y **reversa probada** sobre `celr_v6_db`; baseline intacto (`viajes_odt=24`, `liquidaciones_conductores=6`).
+- **2:** suite nueva `test_cierre_mensual.py` 8/8 + `test_liquidaciones` sin regresión + E2E 5/5 `--purge` + baseline intacto.
+- **3:** `npm run build` OK + suite B2 9/9 (incluye listado) + E2E 5/5 `--purge` + baseline `24/6/0` + **validación HTTP en vivo** (crear → listar → detalle → 409 duplicado → cancelar → vacío; datos purgados al final).
+
+---
+
+## 6. Fases cerradas y fuera de alcance
 
 > ✅ **Cerrada (2026-09-23):** **Gastos + Proveedor en UI** — commit `b7e1cf5`
 > (`feat(frontend): expone proveedor en gastos`). Solo frontend (`Gastos.tsx`); gates verdes:
@@ -133,17 +186,20 @@ el wiring en el payload y (opcional) una columna de KMS en la tabla.
 > migración (el servidor ya devuelve los consolidados del compensado). El input `Vehículo`
 > del COMPENSADO_RC del brief queda como pendiente menor (por ODT el vehículo ya se asocia).
 
+> ✅ **Cerrada (2026-09-23):** **B2 — cierre mensual COMPENSADO_RC persistido** — ver **§5**
+> (sub-fases 1–3: `1a11e18`, `61a56be` y `2131127`; docs en este commit). Full-stack + migración; gates
+> verdes por sub-fase y baseline `24/6/0` intacto.
+
 **Fases candidatas restantes:**
 | Fase candidata | Qué implica | Costo |
 |---|---|---|
 | **Flypass — import + pantalla** | Import CSV/API de `flypass_transacciones` + cruce con gastos peajes | Frontend + decisión de import |
 | **Movimientos bancarios — pantalla** | UI de `movimientos_bancarios` + cruce anticipos | Frontend |
-| **B2 — persistir cierre COMPENSADO_RC** | Tabla + endpoint + UI (decisión de negocio, alta) | Full-stack + **migración** |
 | **B1 / B3 / B4 / B5** | Decisiones de negocio/seguridad en `INSTRUCCIONES_OPENCODE.md` §8 | varía |
 
 ---
 
-## 6. Ejecución y gates
+## 7. Ejecución y gates
 
 Reglas que aplican a la ejecución de la fase ODT (y a cualquier fase futura):
 
@@ -158,17 +214,19 @@ Reglas que aplican a la ejecución de la fase ODT (y a cualquier fase futura):
 
 ---
 
-## 7. Trazabilidad
+## 8. Trazabilidad
 
-- ✅ El texto del briefing está en §8 (commit `141ace3`, pegado 2026-09-23).
+- ✅ El texto del briefing está en §9 (commit `141ace3`, pegado 2026-09-23).
+- ✅ **FASE B2 documentada (2026-09-23, §5):** sub-fases `1a11e18` (migración+modelo),
+  `61a56be` (endpoints+tests), `2131127` (UI) y docs de esta sub-fase.
 - ✅ Hechos de la sección 3 verificados **2026-09-23** contra HEAD `d7048af` y **re-cruzados**
-  contra el brief original en §8: solo 4 inputs ODT están genuinamente ausentes del modelo
+  contra el brief original en §9: solo 4 inputs ODT están genuinamente ausentes del modelo
   (`combustible_total_facturas`, `peajes_efectivo`, `peajes_tag`, `otros_gastos_ruta` — §3.1,
   fuera de alcance, se modelan vía `gastos` + `flypass`).
 
 ---
 
-## 8. Apéndice — requerimiento original (briefing)
+## 9. Apéndice — requerimiento original (briefing)
 
 Texto literal del prompt/briefing de arquitectura que motivó la alineación (pego traza 2026-09-23).
 
