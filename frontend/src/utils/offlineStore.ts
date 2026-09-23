@@ -143,12 +143,20 @@ export async function removePendingTransaction(id: number): Promise<void> {
   })
 }
 
+// Los booleanos no son claves válidas de índice en IndexedDB (lo son number,
+// Date, DOMString, binary y Array), por lo que el índice 'synced' no se puede
+// consultar con IDBKeyRange.only(false/true): lanza DataError. Se filtra en
+// memoria sobre getAll(); el índice queda declarado pero sin uso (ver §4 de
+// INSTRUCCIONES_OPENCODE.md).
 export async function getUnsyncedTransactions(): Promise<PendingTransaction[]> {
   const database = await openDB()
   return new Promise((resolve, reject) => {
     const store = getStore(database, STORE_NAME, 'readonly')
-    const request = store.index('synced').getAll(IDBKeyRange.only(false))
-    request.onsuccess = () => resolve(request.result as PendingTransaction[])
+    const request = store.getAll()
+    request.onsuccess = () => {
+      const items = request.result as PendingTransaction[]
+      resolve(items.filter((t) => !t.synced))
+    }
     request.onerror = () => reject(request.error)
   })
 }
@@ -157,12 +165,16 @@ export async function clearSyncedTransactions(): Promise<void> {
   const database = await openDB()
   return new Promise((resolve, reject) => {
     const store = getStore(database, STORE_NAME, 'readwrite')
-    const request = store.index('synced').openCursor(IDBKeyRange.only(true))
-    request.onsuccess = (event) => {
-      const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result
-      if (cursor) {
-        cursor.delete()
-        cursor.continue()
+    // Mismo motivo que getUnsyncedTransactions(): el índice 'synced' con claves
+    // booleanas no es consultable; se borran los registros ya sincronizados
+    // filtrando en memoria.
+    const request = store.getAll()
+    request.onsuccess = () => {
+      const items = request.result as PendingTransaction[]
+      for (const item of items) {
+        if (item.synced && item.id !== undefined) {
+          store.delete(item.id)
+        }
       }
     }
     const tx = store.transaction
