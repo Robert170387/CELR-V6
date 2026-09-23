@@ -273,7 +273,7 @@ a1b2c3d4e5f6  (head) — FASE A2: modelo contable/operativo
 
 ```
 rama local  = main
-HEAD local  = 962ee79  (FASE 2.D - fix frontend offlineStore)
+HEAD local  = 6cc3452  (docs: sincroniza estado git pre-push)
 origin/main = 317fbe2  (feat: gastos sin ODT, página de ingresos, ...)
 local adelante = 20 commits — SIN PUSH aun
                  (FASE A2:  9 commits, b802d82 → … → 5738e51)
@@ -297,6 +297,12 @@ Historial reciente relevante:
 | `e0bf6bd` | **FASE 2.B** — suites: limpieza de datos al final (DELETE real en orden inverso de FK) |
 | `a73c952` | **FASE 2.C** — `backend/scripts/smoke.py` (humo: conexión, migraciones head, seed, login, conteos baseline) |
 | `962ee79` | **FASE 2.D** — frontend: import de `offlineStore` unificado a estático (warning Vite eliminado) |
+| `c6fb07f` | **FASE 2.F** — docs: actualiza §9/§10/§11 del contexto tras FASE 2 |
+| `3fdbb32` | **FASE 2.G** — docs: añade `INSTRUCCIONES_OPENCODE.md` (convenciones, estado, pendientes) |
+| `62ca791` | chore: elimina `backend_log_tail.txt` suelto + `*.log` en `.gitignore` |
+| `d722f94` | docs: nota sobre secuencia ODT en producción (arranca en cero en BD nueva) |
+| `d3b9557` | docs: completa B1–B5 con preguntas al próximo consultor |
+| `6cc3452` | docs: sincroniza estado git pre-push (§9 e INSTRUCCIONES_OPENCODE, 20 commits) |
 
 ### BD / Docker / tests
 
@@ -349,7 +355,7 @@ venv\Scripts\python.exe ..\scripts\e2e_flow_test.py  # desde backend/
 
 ### P1 — Operativo / entrega (requiere autorización + credenciales del usuario)
 
-1. **Push a GitHub de los 15 commits.** `origin = https://github.com/Robert170387/CELR-V6.git`,
+1. **Push a GitHub de los 20 commits.** `origin = https://github.com/Robert170387/CELR-V6.git`,
    rama `main`, hoy **sin upstream de push** y **sin credencial de escritura** (se requiere un
    **PAT** del usuario). Comando (cuando el usuario lo autorice):
    ```powershell
