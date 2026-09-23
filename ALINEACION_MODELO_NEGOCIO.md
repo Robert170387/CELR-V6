@@ -127,9 +127,15 @@ el wiring en el payload y (opcional) una columna de KMS en la tabla.
 > `npm run build` + E2E `--purge` + OpenAPI vivo (`proveedor_id` presente en
 > `GastoCreate`/`GastoUpdate`).
 
+> ✅ **Cerrada (2026-09-23):** **Liquidaciones — desglose completo** — commit `221ff2f`
+> (`feat(liquidaciones): desglose completo del COMPENSADO_RC mensual`). Solo frontend
+> (`Liquidaciones.tsx`); gates verdes: `npm run build` + E2E `--purge`. Sin backend y sin
+> migración (el servidor ya devuelve los consolidados del compensado). El input `Vehículo`
+> del COMPENSADO_RC del brief queda como pendiente menor (por ODT el vehículo ya se asocia).
+
+**Fases candidatas restantes:**
 | Fase candidata | Qué implica | Costo |
 |---|---|---|
-| **Liquidaciones — desglose completo** | Ampliar la UI COMPENSADO_RC existente | Frontend |
 | **Flypass — import + pantalla** | Import CSV/API de `flypass_transacciones` + cruce con gastos peajes | Frontend + decisión de import |
 | **Movimientos bancarios — pantalla** | UI de `movimientos_bancarios` + cruce anticipos | Frontend |
 | **B2 — persistir cierre COMPENSADO_RC** | Tabla + endpoint + UI (decisión de negocio, alta) | Full-stack + **migración** |

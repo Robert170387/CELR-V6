@@ -48,9 +48,9 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 
 ## 5. Estado actual
 
-- Rama `main` = **30 commits por delante de `origin/main`** (FASE A2 + FASE 2 + docs 2.G + alineación ODT + FASE Gastos + docs).
+- Rama `main` = **31 commits por delante de `origin/main`** (FASE A2 + FASE 2 + docs 2.G + alineación ODT + FASE Gastos + FASE Liquidaciones + docs).
 - **Backup remoto:** los 22 commits de FASE A2+FASE 2 están en `origin/fase-a2-fase-2-local` (`e474022`);
-  los 8 de las fases nuevas (alineación ODT + Gastos + docs) quedan **solo locales** hasta el merge.
+  los 9 de las fases nuevas (alineación ODT + Gastos + Liquidaciones + docs) quedan **solo locales** hasta el merge.
 - Pendiente real: **merge/push a `main`** (PAT del usuario) + deploy manual en Render.
 - **FASE 2 cerrada:**
   | Sub-fase | Commit | Qué cambió |
@@ -73,11 +73,15 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
   | Sub-fase | Commit | Qué cambió |
   |---|---|---|
   | Gastos | `b7e1cf5` | `Gastos.tsx`: proveedor en form crear, modal editar y columna en tabla; gates build+E2E `--purge`+OpenAPI verdes |
+- **FASE Liquidaciones (desglose) cerrada:**
+  | Sub-fase | Commit | Qué cambió |
+  |---|---|---|
+  | Liquidaciones | `221ff2f` | `Liquidaciones.tsx`: conteos en 3 cards, desglose por línea de haberes/descuentos, DEVENGADO TOTAL / DEDUCCIONES TOTALES / NETO A PAGAR, inputs agrupados por sección; gates build+E2E `--purge` verdes |
 
 ## 6. Pendientes (GitHub / Render)
 
 1. **Hecho:** los 22 commits de FASE A2+FASE 2 ya están respaldados en `origin/fase-a2-fase-2-local` (`e474022`).
-   Tras las fases de alineación (ODT + Gastos), `main` local quedó en **30 commits** (los 8 nuevos
+   Tras las fases de alineación (ODT + Gastos + Liquidaciones), `main` local quedó en **31 commits** (los 9 nuevos
    solo locales).
    Pendiente: **merge a `main`** — vía PR en GitHub o
    `git checkout main && git merge fase-a2-fase-2-local`, luego

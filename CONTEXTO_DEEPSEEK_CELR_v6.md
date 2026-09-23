@@ -275,9 +275,9 @@ a1b2c3d4e5f6  (head) — FASE A2: modelo contable/operativo
 rama local  = main
 HEAD local  = <este mismo commit de corrección>  (ver `git log -1 --oneline`)
 origin/main = 317fbe2  (feat: gastos sin ODT, página de ingresos, ...)
-local adelante = 30 commits — main SIN PUSH aún (22 respaldados: origin/fase-a2-fase-2-local @ e474022;
-                 +8 fases nuevas solo locales: d7048af, ce409ff, 141ace3, d075cca, 54b7865, ee4863b,
-                 b7e1cf5, y el docs de cierre L.0)
+local adelante = 31 commits — main SIN PUSH aún (22 respaldados: origin/fase-a2-fase-2-local @ e474022;
+                 +9 fases nuevas solo locales: d7048af, ce409ff, 141ace3, d075cca, 54b7865, ee4863b,
+                 b7e1cf5, e05a78d, y 221ff2f (desglose COMPENSADO_RC))
                  (FASE A2:  9 commits, b802d82 → … → 5738e51)
                  (FASE 2.0-2.D: 165078e → 2e38ee4 → e0bf6bd → a73c952 → 962ee79)   [5]
                  (docs/higiene 2.G: 3fdbb32 → c6fb07f → 62ca791 → d722f94 → d3b9557 → 6cc3452 → d8fde7c → e474022) [8]
