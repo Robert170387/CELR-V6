@@ -78,7 +78,12 @@ el wiring en el payload y (opcional) una columna de KMS en la tabla.
 
 ---
 
-## 4. FASE EN EJECUCIÓN — ODT frontend (única fase aprobada)
+## 4. FASE ODT FRONTEND — ✅ HECHO (2026-09-23)
+
+> **Ejecución:** sub-fase única autorizada y commiteada — `d075cca` (feat(frontend): expone inputs
+> completos de ODT + KMS en preview y tabla). Gates: `npm run build` verde · **E2E verde**
+> (`e2e_flow_test.py` contra :8001) · OpenAPI vivo confirma los 8 campos en
+> `ViajeCreate`/`ViajeUpdate`. Sin cambios en backend (4.3 se cumplió al pie de la letra).
 
 ### 4.1 Inputs nuevos en el form (ya soportados por backend/schema)
 
@@ -143,11 +148,13 @@ Reglas que aplican a la ejecución de la fase ODT (y a cualquier fase futura):
 
 ---
 
-## 7. Trazabilidad (pendiente)
+## 7. Trazabilidad
 
-- El "prompt original del otro LLM" que motivó el briefing **no está en el repo**. Pegar aquí
-  (apéndice) el texto del requerimiento para que esta alineación sea verificable.
-- Fecha de verificación de los hechos de la sección 3: **2026-09-23** contra HEAD `d7048af`.
+- ✅ El texto del briefing está en §8 (commit `141ace3`, pegado 2026-09-23).
+- ✅ Hechos de la sección 3 verificados **2026-09-23** contra HEAD `d7048af` y **re-cruzados**
+  contra el brief original en §8: solo 4 inputs ODT están genuinamente ausentes del modelo
+  (`combustible_total_facturas`, `peajes_efectivo`, `peajes_tag`, `otros_gastos_ruta` — §3.1,
+  fuera de alcance, se modelan vía `gastos` + `flypass`).
 
 ---
 

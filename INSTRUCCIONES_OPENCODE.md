@@ -48,8 +48,9 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 
 ## 5. Estado actual
 
-- Rama `main` = **22 commits por delante de `origin/main`** (FASE A2 + FASE 2 + docs 2.G).
-- **Backup remoto hecho:** los 22 commits están en `origin/fase-a2-fase-2-local` (`e474022`).
+- Rama `main` = **26 commits por delante de `origin/main`** (FASE A2 + FASE 2 + docs 2.G + alineación ODT).
+- **Backup remoto:** los 22 commits de FASE A2+FASE 2 están en `origin/fase-a2-fase-2-local` (`e474022`);
+  los 4 de alineación (`d7048af`, `ce409ff`, `141ace3`, `d075cca`) quedan **solo locales** hasta el merge.
 - Pendiente real: **merge/push a `main`** (PAT del usuario) + deploy manual en Render.
 - **FASE 2 cerrada:**
   | Sub-fase | Commit | Qué cambió |
@@ -62,10 +63,17 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
   | 2.F | `c6fb07f` | docs: §9/§10/§11 del contexto actualizados tras FASE 2 |
   | 2.E | — | **cancelada**: residuo de 6 usuarios `cli-*@celr.com`/`cond-*@celr.com`
     (ids 13–16, 20–21) documentado, **no borrado** (0 referencias FK) |
+- **FASE ODT (alineación) cerrada:**
+  | Sub-fase | Commit | Qué cambió |
+  |---|---|---|
+  | doc base | `ce409ff` | `ALINEACION_MODELO_NEGOCIO.md` (§1–§8, gap verificado contra el repo) |
+  | doc §8 | `141ace3` | apéndice con el requerimiento original (trazabilidad) |
+  | ODT | `d075cca` | form ODT completo: 8 inputs (N° manifiesto, material, pesos, KMS, fecha llegada) + preview KMS + columna KMS; gates build+E2E verdes |
 
 ## 6. Pendientes (GitHub / Render)
 
-1. **Hecho:** los 22 commits ya están respaldados en `origin/fase-a2-fase-2-local` (`e474022`).
+1. **Hecho:** los 22 commits de FASE A2+FASE 2 ya están respaldados en `origin/fase-a2-fase-2-local` (`e474022`).
+   Tras la fase ODT, `main` local quedó en **26 commits** (los 4 de alineación solo locales).
    Pendiente: **merge a `main`** — vía PR en GitHub o
    `git checkout main && git merge fase-a2-fase-2-local`, luego
    `git push origin main` con **PAT del usuario** (Credential Manager, Opción A).
