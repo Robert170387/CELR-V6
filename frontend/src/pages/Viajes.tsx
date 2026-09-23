@@ -60,6 +60,16 @@ interface Viaje {
   saldo_flete_esperado?: string | null
   gastos_totales_viaje?: string | null
   utilidad_neta_odt?: string | null
+  // FASE ODT — inputs del form (existen en modelo/schema; UI añadida)
+  num_manifiesto?: string | null
+  tipo_carga?: string | null
+  peso_declarado_ton?: string | null
+  peso_bascula_origen?: string | null
+  peso_bascula_destino?: string | null
+  km_inicial?: string | null
+  km_final?: string | null
+  km_recorridos?: string | null
+  fecha_llegada?: string | null
 }
 
 const estadoStyles: Record<string, string> = {
@@ -101,6 +111,14 @@ const initialForm = {
   otras_deducciones: '',
   anticipo_manifiesto: '',
   porcentaje_comision: '',
+  num_manifiesto: '',
+  tipo_carga: '',
+  peso_declarado_ton: '',
+  peso_bascula_origen: '',
+  peso_bascula_destino: '',
+  km_inicial: '',
+  km_final: '',
+  fecha_llegada: '',
   estado: 'en_curso',
 }
 
@@ -120,6 +138,14 @@ const camposViaje = [
   'otras_deducciones',
   'anticipo_manifiesto',
   'porcentaje_comision',
+  'num_manifiesto',
+  'tipo_carga',
+  'peso_declarado_ton',
+  'peso_bascula_origen',
+  'peso_bascula_destino',
+  'km_inicial',
+  'km_final',
+  'fecha_llegada',
   'estado',
 ] as const
 
@@ -245,6 +271,15 @@ const Viajes: React.FC = () => {
     if (form.otras_deducciones) payload.otras_deducciones = Number(form.otras_deducciones)
     if (form.anticipo_manifiesto) payload.anticipo_manifiesto = Number(form.anticipo_manifiesto)
     if (form.porcentaje_comision) payload.porcentaje_comision = Number(form.porcentaje_comision)
+    // FASE ODT — nuevos inputs del form (ya soportados por el schema/backend)
+    if (form.num_manifiesto) payload.num_manifiesto = form.num_manifiesto
+    if (form.tipo_carga) payload.tipo_carga = form.tipo_carga
+    if (form.peso_declarado_ton) payload.peso_declarado_ton = Number(form.peso_declarado_ton)
+    if (form.peso_bascula_origen) payload.peso_bascula_origen = Number(form.peso_bascula_origen)
+    if (form.peso_bascula_destino) payload.peso_bascula_destino = Number(form.peso_bascula_destino)
+    if (form.km_inicial) payload.km_inicial = Number(form.km_inicial)
+    if (form.km_final) payload.km_final = Number(form.km_final)
+    if (form.fecha_llegada) payload.fecha_llegada = form.fecha_llegada
     try {
       const creado = await viajesAPI.crear(payload)
       setSuccess(`ODT ${creado.data.numero_odt} creada correctamente`)
@@ -316,6 +351,15 @@ const Viajes: React.FC = () => {
     if (editForm.otras_deducciones) payload.otras_deducciones = Number(editForm.otras_deducciones)
     if (editForm.anticipo_manifiesto) payload.anticipo_manifiesto = Number(editForm.anticipo_manifiesto)
     if (editForm.porcentaje_comision) payload.porcentaje_comision = Number(editForm.porcentaje_comision)
+    // FASE ODT — nuevos inputs del form (ya soportados por el schema/backend)
+    if (editForm.num_manifiesto) payload.num_manifiesto = editForm.num_manifiesto
+    if (editForm.tipo_carga) payload.tipo_carga = editForm.tipo_carga
+    if (editForm.peso_declarado_ton) payload.peso_declarado_ton = Number(editForm.peso_declarado_ton)
+    if (editForm.peso_bascula_origen) payload.peso_bascula_origen = Number(editForm.peso_bascula_origen)
+    if (editForm.peso_bascula_destino) payload.peso_bascula_destino = Number(editForm.peso_bascula_destino)
+    if (editForm.km_inicial) payload.km_inicial = Number(editForm.km_inicial)
+    if (editForm.km_final) payload.km_final = Number(editForm.km_final)
+    if (editForm.fecha_llegada) payload.fecha_llegada = editForm.fecha_llegada
     payload.origen_municipio_id = editForm.origen_municipio_id ? Number(editForm.origen_municipio_id) : null
     payload.destino_municipio_id = editForm.destino_municipio_id ? Number(editForm.destino_municipio_id) : null
 
@@ -436,10 +480,10 @@ const Viajes: React.FC = () => {
         />
       )
     }
-    const esNumero = ['valor_flete_manifiesto', 'retefuente_porcentaje', 'reteica_porcentaje', 'otras_deducciones', 'anticipo_manifiesto', 'porcentaje_comision'].includes(campo)
+    const esNumero = ['valor_flete_manifiesto', 'retefuente_porcentaje', 'reteica_porcentaje', 'otras_deducciones', 'anticipo_manifiesto', 'porcentaje_comision', 'peso_declarado_ton', 'peso_bascula_origen', 'peso_bascula_destino', 'km_inicial', 'km_final'].includes(campo)
     return (
       <input
-        type={campo === 'fecha_salida' || campo === 'fecha_manifiesto' ? 'date' : esNumero ? 'number' : 'text'}
+        type={campo === 'fecha_salida' || campo === 'fecha_manifiesto' || campo === 'fecha_llegada' ? 'date' : esNumero ? 'number' : 'text'}
         name={campo}
         value={editForm[campo] || ''}
         onChange={handleEditChange}
@@ -466,6 +510,14 @@ const traduccionCampo: Record<string, string> = {
   otras_deducciones: 'Otras deducciones',
   anticipo_manifiesto: 'Anticipo de manifiesto',
   porcentaje_comision: '% Comisión',
+  num_manifiesto: 'N° Manifiesto',
+  tipo_carga: 'Material / carga',
+  peso_declarado_ton: 'Peso declarado (ton)',
+  peso_bascula_origen: 'Peso báscula origen (ton)',
+  peso_bascula_destino: 'Peso báscula destino (ton)',
+  km_inicial: 'KMS inicial tacómetro',
+  km_final: 'KMS final tacómetro',
+  fecha_llegada: 'Fecha llegada',
   estado: 'Estado',
 }
 
@@ -707,6 +759,111 @@ const FilaCalculada: React.FC<{ label: string; valor: number; tono?: string }> =
           </div>
 
           <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">N° Manifiesto</label>
+            <input
+              type="text"
+              name="num_manifiesto"
+              value={form.num_manifiesto}
+              onChange={handleChange}
+              className="input-truck"
+              placeholder="Ej: 0001234"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">Material / carga</label>
+            <input
+              type="text"
+              name="tipo_carga"
+              value={form.tipo_carga}
+              onChange={handleChange}
+              className="input-truck"
+              placeholder="Ej: Cemento, fertilizante..."
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">Peso declarado (ton)</label>
+            <input
+              type="number"
+              name="peso_declarado_ton"
+              value={form.peso_declarado_ton}
+              onChange={handleChange}
+              className="input-truck"
+              placeholder="0"
+              min="0"
+              step="0.01"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">Peso báscula origen (ton)</label>
+            <input
+              type="number"
+              name="peso_bascula_origen"
+              value={form.peso_bascula_origen}
+              onChange={handleChange}
+              className="input-truck"
+              placeholder="0"
+              min="0"
+              step="0.01"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">Peso báscula destino (ton)</label>
+            <input
+              type="number"
+              name="peso_bascula_destino"
+              value={form.peso_bascula_destino}
+              onChange={handleChange}
+              className="input-truck"
+              placeholder="0"
+              min="0"
+              step="0.01"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">KMS inicial tacómetro</label>
+            <input
+              type="number"
+              name="km_inicial"
+              value={form.km_inicial}
+              onChange={handleChange}
+              className="input-truck"
+              placeholder="0"
+              min="0"
+              step="0.01"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">KMS final tacómetro</label>
+            <input
+              type="number"
+              name="km_final"
+              value={form.km_final}
+              onChange={handleChange}
+              className="input-truck"
+              placeholder="0"
+              min="0"
+              step="0.01"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">Fecha llegada</label>
+            <input
+              type="date"
+              name="fecha_llegada"
+              value={form.fecha_llegada}
+              onChange={handleChange}
+              className="input-truck"
+            />
+          </div>
+
+          <div>
             <label className="block text-sm font-medium text-slate-300 mb-1">Estado</label>
             <select
               name="estado"
@@ -731,7 +888,10 @@ const FilaCalculada: React.FC<{ label: string; valor: number; tono?: string }> =
             const comisionPct = Number(form.porcentaje_comision) || 10
             const fleteNeto = Math.round((flete - rfuenteValor - ricaValor - otras) * 100) / 100
             const comision = Math.round((fleteNeto * comisionPct) / 100 * 100) / 100
-            return flete > 0 ? (
+            const kmInicial = Number(form.km_inicial) || 0
+            const kmFinal = Number(form.km_final) || 0
+            const kmRecorridos = kmFinal - kmInicial
+            return flete > 0 || kmRecorridos > 0 ? (
               <div className="md:col-span-2 lg:col-span-3">
                 <div className="rounded-lg border border-primary-500/30 bg-primary-500/5 p-4">
                   <p className="text-sm font-semibold text-primary-300 mb-2 flex items-center gap-2">
@@ -745,6 +905,12 @@ const FilaCalculada: React.FC<{ label: string; valor: number; tono?: string }> =
                     <FilaCalculada label={`Comisión (${comisionPct}%)`} valor={comision} tono="text-orange-400" />
                     <FilaCalculada label="Saldo flete esperado" valor={Math.round((fleteNeto - anticipo) * 100) / 100} tono="text-green-400" />
                     <FilaCalculada label="Utilidad est. (sin gastos)" valor={Math.round((fleteNeto - comision) * 100) / 100} tono="text-green-400" />
+                    {kmRecorridos > 0 && (
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-slate-400">KMS recorridos</span>
+                        <span className="text-white">{kmRecorridos.toLocaleString('es-CO')} km</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -803,6 +969,7 @@ const FilaCalculada: React.FC<{ label: string; valor: number; tono?: string }> =
                   <th className="py-2 px-3">Conductor</th>
                   <th className="py-2 px-3">Ruta</th>
                   <th className="py-2 px-3">Fecha Salida</th>
+                  <th className="py-2 px-3">KMS</th>
                   <th className="py-2 px-3">Flete Neto</th>
                   <th className="py-2 px-3">Utilidad</th>
                   <th className="py-2 px-3">Margen Est.</th>
@@ -823,6 +990,7 @@ const FilaCalculada: React.FC<{ label: string; valor: number; tono?: string }> =
                         {viaje.origen} → {viaje.destino}
                       </td>
                       <td className="py-3 px-3 text-slate-400">{viaje.fecha_salida}</td>
+                      <td className="py-3 px-3 text-slate-400">{viaje.km_recorridos != null ? `${Number(viaje.km_recorridos).toLocaleString('es-CO')}` : '-'}</td>
                       <td className="py-3 px-3 text-white">{viaje.flete_neto ? `$${Number(viaje.flete_neto).toLocaleString('es-CO')}` : '-'}</td>
                       <td className="py-3 px-3">
                         {viaje.utilidad_neta_odt != null ? (
