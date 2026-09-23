@@ -34,11 +34,30 @@ interface Gasto {
   km_registro: string | null
   ciudad_abastecimiento: string | null
   ciudad_abastecimiento_municipio_id?: number | null
+  // FASE A2 — flujo de pago del gasto
+  metodo_pago?: string | null
+  estado_pago?: string | null
+  legalizado?: boolean | null
 }
 
 const categorias = ['combustible', 'peaje', 'viaticos', 'mantenimiento', 'lavado', 'parqueadero', 'otros']
 const asumidoPor = ['empresa', 'owner', 'conductor']
 const responsablePago = ['conductor', 'empresa', 'tarjeta_empresa']
+
+// FASE A2 — enums del flujo de pago
+const metodosPago = [
+  { value: 'efectivo', label: 'Efectivo' },
+  { value: 'tarjeta', label: 'Tarjeta' },
+  { value: 'transferencia', label: 'Transferencia' },
+  { value: 'tag', label: 'Tag' },
+]
+const estadosPagoGasto = [
+  { value: 'pagado', label: 'Pagado' },
+  { value: 'pendiente_por_pagar', label: 'Pendiente por pagar' },
+  { value: 'legalizado', label: 'Legalizado' },
+]
+const labelMetodoPago = (v: string) => metodosPago.find((m) => m.value === v)?.label || v
+const labelEstadoPagoGasto = (v: string) => estadosPagoGasto.find((e) => e.value === v)?.label || v
 
 const hoy = () => new Date().toISOString().slice(0, 10)
 
@@ -52,6 +71,8 @@ const initialForm = () => ({
   valor_total: '',
   asumido_por: 'empresa',
   responsable_pago: 'conductor',
+  metodo_pago: 'efectivo',
+  estado_pago: 'pagado',
   cantidad_galones: '',
   precio_por_galon: '',
   km_registro: '',
@@ -68,6 +89,8 @@ const camposBaseEdicion: { name: string; label: string }[] = [
   { name: 'num_factura', label: 'N° Factura' },
   { name: 'asumido_por', label: 'Asumido por' },
   { name: 'responsable_pago', label: 'Responsable de pago' },
+  { name: 'metodo_pago', label: 'Método de pago' },
+  { name: 'estado_pago', label: 'Estado de pago' },
   { name: 'descripcion', label: 'Descripción' },
 ]
 
@@ -186,6 +209,8 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
       valor_total: form.valor_total,
       asumido_por: form.asumido_por,
       responsable_pago: form.responsable_pago,
+      metodo_pago: form.metodo_pago,
+      estado_pago: form.estado_pago,
       tiene_num_factura: Boolean(form.num_factura),
     }
     if (form.viaje_id && form.viaje_id !== SIN_VIAJE) {
@@ -267,6 +292,8 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
     if (editForm.num_factura) payload.num_factura = editForm.num_factura
     if (editForm.asumido_por) payload.asumido_por = editForm.asumido_por
     if (editForm.responsable_pago) payload.responsable_pago = editForm.responsable_pago
+    if (editForm.metodo_pago) payload.metodo_pago = editForm.metodo_pago
+    if (editForm.estado_pago) payload.estado_pago = editForm.estado_pago
     if (editForm.categoria === 'combustible') {
       if (editForm.cantidad_galones) payload.cantidad_galones = Number(editForm.cantidad_galones)
       if (editForm.precio_por_galon) payload.precio_por_galon = Number(editForm.precio_por_galon)
@@ -369,6 +396,28 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
           {responsablePago.map((r) => (
             <option key={r} value={r}>
               {r}
+            </option>
+          ))}
+        </select>
+      )
+    }
+    if (campo.name === 'metodo_pago') {
+      return (
+        <select name={campo.name} value={editForm[campo.name] || ''} onChange={handleEditChange} className="input-truck">
+          {metodosPago.map((m) => (
+            <option key={m.value} value={m.value}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+      )
+    }
+    if (campo.name === 'estado_pago') {
+      return (
+        <select name={campo.name} value={editForm[campo.name] || ''} onChange={handleEditChange} className="input-truck">
+          {estadosPagoGasto.map((e) => (
+            <option key={e.value} value={e.value}>
+              {e.label}
             </option>
           ))}
         </select>
@@ -594,6 +643,28 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
             </select>
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">Método de pago</label>
+            <select name="metodo_pago" value={form.metodo_pago} onChange={handleChange} className="input-truck">
+              {metodosPago.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">Estado de pago</label>
+            <select name="estado_pago" value={form.estado_pago} onChange={handleChange} className="input-truck">
+              {estadosPagoGasto.map((e) => (
+                <option key={e.value} value={e.value}>
+                  {e.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="md:col-span-2 lg:col-span-3">
             <label className="block text-sm font-medium text-slate-300 mb-1">Descripción</label>
             <input type="text" name="descripcion" value={form.descripcion} onChange={handleChange} className="input-truck" placeholder="Detalle del gasto" />
@@ -643,6 +714,7 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
                   <th className="py-2 px-3">Categoría</th>
                   <th className="py-2 px-3">N° Factura</th>
                   <th className="py-2 px-3">Asumido</th>
+                  <th className="py-2 px-3">Pago</th>
                   <th className="py-2 px-3 text-right">Valor</th>
                   <th className="py-2 px-3 text-right">Acciones</th>
                 </tr>
@@ -664,6 +736,24 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
                     <td className="py-3 px-3 text-white capitalize">{g.categoria}</td>
                     <td className="py-3 px-3 text-slate-400">{g.num_factura || '-'}</td>
                     <td className="py-3 px-3 text-slate-400 capitalize">{g.asumido_por}</td>
+                    <td className="py-3 px-3">
+                      {g.estado_pago ? (
+                        <span
+                          className={`px-2 py-1 rounded-full text-xs ${
+                            g.estado_pago === 'pagado'
+                              ? 'bg-green-500/20 text-green-400'
+                              : g.estado_pago === 'pendiente_por_pagar'
+                                ? 'bg-yellow-500/20 text-yellow-400'
+                                : 'bg-blue-500/20 text-blue-400'
+                          }`}
+                          title={`Método: ${labelMetodoPago(g.metodo_pago || '')}`}
+                        >
+                          {labelEstadoPagoGasto(g.estado_pago)}
+                        </span>
+                      ) : (
+                        <span className="text-slate-500">-</span>
+                      )}
+                    </td>
                     <td className="py-3 px-3 text-right text-white">{formatearMoneda(g.valor_total)}</td>
                     <td className="py-3 px-3">
                       <div className="flex items-center justify-end gap-1">

@@ -43,6 +43,8 @@ export const viajesAPI = {
     apiClient.get(`/viajes/conductor/${conductorId}`).then((r) => conTotal<any>(r)),
   actualizar: (id: number, data: any) => apiClient.put(`/viajes/${id}`, data),
   eliminar: (id: number) => apiClient.delete(`/viajes/${id}`),
+  // FASE A2 — Regla 4: bloqueos para finalizar la ODT
+  bloqueosCierre: (id: number) => apiClient.get(`/viajes/${id}/bloqueos-cierre`).then((r) => r.data as BloqueosCierre),
 }
 
 export const vehiculosAPI = {
@@ -106,6 +108,32 @@ export const gastosAPI = {
 export const liquidacionesAPI = {
   calcular: (viajeId: number) => apiClient.get(`/liquidaciones/calcular/${viajeId}`),
   cerrar: (viajeId: number, data: any) => apiClient.post(`/liquidaciones/cerrar/${viajeId}`, data),
+  // FASE A2 — COMPENSADO_RC mensual del conductor
+  compensado: (conductorId: number, periodoInicio: string, periodoFin: string) =>
+    apiClient
+      .get('/liquidaciones/compensado', {
+        params: { conductor_id: conductorId, periodo_inicio: periodoInicio, periodo_fin: periodoFin },
+      })
+      .then((r) => r.data as CompensadoMensual),
+}
+
+export interface BloqueosCierre {
+  viaje_id: number
+  numero_odt: string
+  cercable: boolean
+  bloqueos: string[]
+}
+
+export interface CompensadoMensual {
+  conductor_id: number
+  periodo_inicio: string
+  periodo_fin: string
+  total_viajes: number
+  viajes_nacionales: number
+  viajes_urbanos: number
+  comisiones_total: string
+  retiros_tarjeta_anticipos: string
+  odts_incluidas: number[]
 }
 
 export const municipiosAPI = {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { Calculator, Loader2, AlertCircle, CheckCircle2, XCircle, Lock, TrendingUp } from 'lucide-react'
-import { viajesAPI, liquidacionesAPI } from '@/api'
+import { Calculator, Loader2, AlertCircle, CheckCircle2, XCircle, Lock, TrendingUp, CalendarRange } from 'lucide-react'
+import { viajesAPI, liquidacionesAPI, conductoresAPI, CompensadoMensual } from '@/api'
 import { extraerMensajeError, formatearMoneda } from '@/utils/format'
 
 interface Viaje {
@@ -10,6 +10,12 @@ interface Viaje {
   conductor_id: number
   vehiculo_id: number
   fecha_salida: string
+}
+
+interface Conductor {
+  id: number
+  nombre_completo: string
+  cedula: string
 }
 
 interface Desglose {
@@ -30,6 +36,28 @@ interface Desglose {
 }
 
 const hoy = () => new Date().toISOString().slice(0, 10)
+const mesActual = () => new Date().toISOString().slice(0, 7)
+
+const limitesMes = (mes: string): { inicio: string; fin: string } => {
+  const [anio, m] = mes.split('-').map(Number)
+  const fin = new Date(Date.UTC(anio, m, 0)) // día 0 del mes siguiente => último día del mes
+  return { inicio: `${mes}-01`, fin: fin.toISOString().slice(0, 10) }
+}
+
+// FASE A2 — inputs manuales del COMPENSADO_RC (los consolidados los calcula el servidor)
+const inicialInputsMensuales = () => ({
+  salario_basico: '',
+  auxilio_transporte: '',
+  papeleria: '',
+  descuento_salud_pension: '',
+  bonificaciones: '',
+  viaticos_reconocidos: '',
+  otros_haberes: '',
+  anticipos_entregados: '',
+  gastos_a_cargo_conductor: '',
+  prestamos: '',
+  otros_descuentos: '',
+})
 
 const Liquidaciones: React.FC = () => {
   const [viajes, setViajes] = useState<Viaje[]>([])
@@ -43,12 +71,22 @@ const Liquidaciones: React.FC = () => {
   const [closeError, setCloseError] = useState('')
   const [success, setSuccess] = useState('')
 
+  // COMPENSADO_RC mensual
+  const [conductores, setConductores] = useState<Conductor[]>([])
+  const [conductorId, setConductorId] = useState('')
+  const [mes, setMes] = useState(mesActual())
+  const [consolidado, setConsolidado] = useState<CompensadoMensual | null>(null)
+  const [consolidando, setConsolidando] = useState(false)
+  const [consolError, setConsolError] = useState('')
+  const [inputsMensuales, setInputsMensuales] = useState(inicialInputsMensuales)
+
   const cargarViajes = async () => {
     setLoading(true)
     setListError('')
     try {
-      const res = await viajesAPI.listar(false)
-      setViajes(res.data)
+      const [viajesRes, conductoresRes] = await Promise.all([viajesAPI.listar(false), conductoresAPI.listar()])
+      setViajes(viajesRes.data)
+      setConductores(conductoresRes.data)
     } catch (err) {
       setListError(extraerMensajeError(err))
     } finally {
@@ -116,6 +154,48 @@ const Liquidaciones: React.FC = () => {
     }
   }
 
+  const consolidarMes = async () => {
+    if (!conductorId) return
+    setConsolidando(true)
+    setConsolError('')
+    setSuccess('')
+    try {
+      const { inicio, fin } = limitesMes(mes)
+      const res = await liquidacionesAPI.compensado(Number(conductorId), inicio, fin)
+      setConsolidado(res)
+      setInputsMensuales(inicialInputsMensuales())
+    } catch (err) {
+      setConsolError(extraerMensajeError(err))
+    } finally {
+      setConsolidando(false)
+    }
+  }
+
+  const handleInputMensual = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputsMensuales({ ...inputsMensuales, [e.target.name]: e.target.value })
+  }
+
+  const n = (v: string) => Number(v) || 0
+
+  const haberesMensuales = consolidado
+    ? Number(consolidado.comisiones_total) +
+      n(inputsMensuales.bonificaciones) +
+      n(inputsMensuales.viaticos_reconocidos) +
+      n(inputsMensuales.otros_haberes) +
+      n(inputsMensuales.salario_basico) +
+      n(inputsMensuales.auxilio_transporte) +
+      n(inputsMensuales.papeleria)
+    : 0
+
+  const descuentosMensuales = consolidado
+    ? n(inputsMensuales.anticipos_entregados) +
+      n(inputsMensuales.gastos_a_cargo_conductor) +
+      n(inputsMensuales.prestamos) +
+      n(inputsMensuales.otros_descuentos) +
+      n(inputsMensuales.descuento_salud_pension) +
+      Number(consolidado.retiros_tarjeta_anticipos)
+    : 0
+
   const filas = desglose
     ? [
         { label: 'Valor flete manifiesto', valor: desglose.valor_flete_manifiesto, tono: 'text-white', negativo: false },
@@ -129,6 +209,20 @@ const Liquidaciones: React.FC = () => {
         { label: `Comisión flete (${desglose.porcentaje_comision ?? 10}%)`, valor: desglose.comision_flete, tono: 'text-orange-400', negativo: true },
       ]
     : []
+
+  const camposMensuales: { name: string; label: string }[] = [
+    { name: 'bonificaciones', label: 'Bonificaciones' },
+    { name: 'viaticos_reconocidos', label: 'Viáticos reconocidos' },
+    { name: 'otros_haberes', label: 'Otros haberes' },
+    { name: 'salario_basico', label: 'Salario básico' },
+    { name: 'auxilio_transporte', label: 'Auxilio de transporte' },
+    { name: 'papeleria', label: 'Papelería' },
+    { name: 'anticipos_entregados', label: 'Anticipos entregados' },
+    { name: 'gastos_a_cargo_conductor', label: 'Gastos a cargo del conductor' },
+    { name: 'prestamos', label: 'Préstamos' },
+    { name: 'otros_descuentos', label: 'Otros descuentos' },
+    { name: 'descuento_salud_pension', label: 'Salud y pensión' },
+  ]
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -231,6 +325,109 @@ const Liquidaciones: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* FASE A2 — COMPENSADO_RC mensual del conductor */}
+      <div className="card-truck">
+        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <CalendarRange size={20} />
+          COMPENSADO_RC Mensual
+        </h3>
+        <p className="text-sm text-slate-400 mb-4">
+          Consolidados automáticos del mes (comisiones, conteo de viajes y retiros de tarjeta). El cierre formal se hace
+          por ODT en la sección superior; al cerrar se guardan los consolidados del periodo.
+        </p>
+
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-slate-300 mb-1">Conductor</label>
+            <select value={conductorId} onChange={(e) => setConductorId(e.target.value)} className="input-truck">
+              <option value="">Selecciona un conductor</option>
+              {conductores.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nombre_completo} — {c.cedula}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="w-full sm:w-48">
+            <label className="block text-sm font-medium text-slate-300 mb-1">Mes</label>
+            <input type="month" value={mes} onChange={(e) => setMes(e.target.value)} className="input-truck" />
+          </div>
+          <button
+            onClick={consolidarMes}
+            disabled={!conductorId || consolidando}
+            className="btn-celr flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {consolidando ? <Loader2 className="animate-spin" size={20} /> : <TrendingUp size={20} />}
+            {consolidando ? 'Consolidando...' : 'Consolidar mes'}
+          </button>
+        </div>
+
+        {consolError && (
+          <div className="flex items-center gap-2 bg-danger-500/10 border border-danger-500/30 text-danger-500 px-4 py-3 rounded-lg mt-4">
+            <AlertCircle size={18} />
+            <span>{consolError}</span>
+          </div>
+        )}
+
+        {consolidado && (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4">
+              <div className="rounded-lg bg-slate-800/60 p-3">
+                <p className="text-xs text-slate-400">Viajes en el mes</p>
+                <p className="text-xl font-bold text-white">{consolidado.total_viajes}</p>
+                <p className="text-xs text-slate-500">
+                  {consolidado.viajes_nacionales} nac. · {consolidado.viajes_urbanos} urb.
+                </p>
+              </div>
+              <div className="rounded-lg bg-slate-800/60 p-3">
+                <p className="text-xs text-slate-400">Comisiones totales</p>
+                <p className="text-xl font-bold text-green-400">{formatearMoneda(consolidado.comisiones_total)}</p>
+              </div>
+              <div className="rounded-lg bg-slate-800/60 p-3">
+                <p className="text-xs text-slate-400">Retiros tarjeta (anticipos)</p>
+                <p className="text-xl font-bold text-orange-400">{formatearMoneda(consolidado.retiros_tarjeta_anticipos)}</p>
+              </div>
+              <div className="rounded-lg bg-slate-800/60 p-3">
+                <p className="text-xs text-slate-400">Haberes</p>
+                <p className="text-xl font-bold text-blue-400">{formatearMoneda(haberesMensuales)}</p>
+              </div>
+              <div className="rounded-lg bg-slate-800/60 p-3">
+                <p className="text-xs text-slate-400">Descuentos</p>
+                <p className="text-xl font-bold text-orange-400">{formatearMoneda(descuentosMensuales)}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+              {camposMensuales.map((campo) => (
+                <div key={campo.name}>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">{campo.label}</label>
+                  <input
+                    type="number"
+                    name={campo.name}
+                    value={(inputsMensuales as Record<string, string>)[campo.name] ?? ''}
+                    onChange={handleInputMensual}
+                    className="input-truck"
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-600">
+              <span className="text-base font-semibold text-white">Saldo estimado del mes (vista previa)</span>
+              <span className={`text-2xl font-bold ${haberesMensuales - descuentosMensuales >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {formatearMoneda(haberesMensuales - descuentosMensuales)}
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-2">
+              Vista previa calculada con la fórmula del servidor (haberes − descuentos). Los valores definitivos los
+              deriva el backend al cerrar la liquidación de cada ODT del periodo.
+            </p>
+          </>
+        )}
+      </div>
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { Package, Truck, Plus, Loader2, AlertCircle, CheckCircle2, XCircle, Pencil, Trash2, X } from 'lucide-react'
-import { viajesAPI, vehiculosAPI, conductoresAPI, gastosAPI } from '@/api'
+import { Package, Truck, Plus, Loader2, AlertCircle, CheckCircle2, XCircle, Pencil, Trash2, X, Calculator, ShieldAlert } from 'lucide-react'
+import { viajesAPI, vehiculosAPI, conductoresAPI, gastosAPI, proveedoresAPI } from '@/api'
 import Pagination from '@/components/Pagination'
 import SelectorCiudad from '@/components/SelectorCiudad'
 import { extraerMensajeError, esErrorDeRed, formatearMoneda } from '@/utils/format'
@@ -19,6 +19,13 @@ interface Conductor {
   cedula: string
 }
 
+interface Proveedor {
+  id: number
+  nit: string | null
+  razon_social: string
+  nombre_comercial: string | null
+}
+
 interface GastoResumen {
   viaje_id: number | null
   valor_total: string
@@ -35,8 +42,24 @@ interface Viaje {
   destino_municipio_id?: number | null
   fecha_salida: string
   estado: string
-  flete_neto: string | null
+  // FASE A2 — inputs manuales de la ODT
+  tipo_viaje: string
+  empresa_manifiesto_id?: number | null
+  fecha_manifiesto?: string | null
   valor_flete_manifiesto: string | null
+  retefuente_porcentaje?: string | null
+  reteica_porcentaje?: string | null
+  otras_deducciones?: string | null
+  anticipo_manifiesto?: string | null
+  porcentaje_comision?: string | null
+  // FASE A2 — calculados por el servidor (solo lectura)
+  flete_neto: string | null
+  retefuente_valor?: string | null
+  reteica_valor?: string | null
+  comision_conductor?: string | null
+  saldo_flete_esperado?: string | null
+  gastos_totales_viaje?: string | null
+  utilidad_neta_odt?: string | null
 }
 
 const estadoStyles: Record<string, string> = {
@@ -54,6 +77,13 @@ const estadoItems = [
   { value: 'cancelado', label: 'Cancelado' },
 ]
 
+const tipoViajeItems = [
+  { value: 'urbano', label: 'Urbano' },
+  { value: 'nacional', label: 'Nacional' },
+  { value: 'internacional', label: 'Internacional' },
+  { value: 'vacio', label: 'Vacío' },
+]
+
 const initialForm = {
   vehiculo_id: '',
   conductor_id: '',
@@ -63,8 +93,14 @@ const initialForm = {
   destino_municipio_id: '',
   fecha_salida: '',
   valor_flete_manifiesto: '',
-  retefuente_valor: '',
-  reteica_valor: '',
+  retefuente_porcentaje: '',
+  reteica_porcentaje: '',
+  tipo_viaje: 'nacional',
+  empresa_manifiesto_id: '',
+  fecha_manifiesto: '',
+  otras_deducciones: '',
+  anticipo_manifiesto: '',
+  porcentaje_comision: '',
   estado: 'en_curso',
 }
 
@@ -75,9 +111,15 @@ const camposViaje = [
   'origen',
   'destino',
   'fecha_salida',
+  'tipo_viaje',
+  'empresa_manifiesto_id',
+  'fecha_manifiesto',
   'valor_flete_manifiesto',
-  'retefuente_valor',
-  'reteica_valor',
+  'retefuente_porcentaje',
+  'reteica_porcentaje',
+  'otras_deducciones',
+  'anticipo_manifiesto',
+  'porcentaje_comision',
   'estado',
 ] as const
 
@@ -87,6 +129,7 @@ const Viajes: React.FC = () => {
   const esConductor = user?.rol === 'conductor'
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>([])
   const [conductores, setConductores] = useState<Conductor[]>([])
+  const [proveedores, setProveedores] = useState<Proveedor[]>([])
   const [viajes, setViajes] = useState<Viaje[]>([])
   const [totalViajes, setTotalViajes] = useState(0)
   const [pagina, setPagina] = useState(1)
@@ -107,6 +150,9 @@ const Viajes: React.FC = () => {
   const [eliminarError, setEliminarError] = useState('')
   const [eliminando, setEliminando] = useState(false)
 
+  const [bloqueosInfo, setBloqueosInfo] = useState<{ numero_odt: string; cercable: boolean; bloqueos: string[] } | null>(null)
+  const [cargandoBloqueos, setCargandoBloqueos] = useState<number | null>(null)
+
   const cargarDatos = async () => {
     setLoading(true)
     setError('')
@@ -115,17 +161,19 @@ const Viajes: React.FC = () => {
         esConductor && user?.conductor_id
           ? viajesAPI.porConductor(user.conductor_id)
           : viajesAPI.listar(false, { skip: (pagina - 1) * PAGE_SIZE, limit: PAGE_SIZE })
-      const [viajesRes, vehiculosRes, conductoresRes, gastosRes] = await Promise.all([
+      const [viajesRes, vehiculosRes, conductoresRes, gastosRes, proveedoresRes] = await Promise.all([
         viajesPromise,
         vehiculosAPI.listar(),
         conductoresAPI.listar(),
         gastosAPI.listar(),
+        proveedoresAPI.listar(),
       ])
       setViajes(viajesRes.data)
       setTotalViajes(viajesRes.total)
       setGastos(gastosRes.data)
       setVehiculos(vehiculosRes.data)
       setConductores(conductoresRes.data)
+      setProveedores(proveedoresRes.data)
       if (!form.vehiculo_id && vehiculosRes.data.length > 0) {
         setForm((f) => ({ ...f, vehiculo_id: String(vehiculosRes.data[0].id) }))
       }
@@ -188,8 +236,15 @@ const Viajes: React.FC = () => {
       estado: form.estado,
     }
     if (form.valor_flete_manifiesto) payload.valor_flete_manifiesto = form.valor_flete_manifiesto
-    if (form.retefuente_valor) payload.retefuente_valor = form.retefuente_valor
-    if (form.reteica_valor) payload.reteica_valor = form.reteica_valor
+    // FASE A2: el cliente envia SOLO inputs manuales; los calculados los deriva el servidor
+    if (form.retefuente_porcentaje) payload.retefuente_porcentaje = Number(form.retefuente_porcentaje)
+    if (form.reteica_porcentaje) payload.reteica_porcentaje = Number(form.reteica_porcentaje)
+    if (form.tipo_viaje) payload.tipo_viaje = form.tipo_viaje
+    if (form.empresa_manifiesto_id) payload.empresa_manifiesto_id = Number(form.empresa_manifiesto_id)
+    if (form.fecha_manifiesto) payload.fecha_manifiesto = form.fecha_manifiesto
+    if (form.otras_deducciones) payload.otras_deducciones = Number(form.otras_deducciones)
+    if (form.anticipo_manifiesto) payload.anticipo_manifiesto = Number(form.anticipo_manifiesto)
+    if (form.porcentaje_comision) payload.porcentaje_comision = Number(form.porcentaje_comision)
     try {
       const creado = await viajesAPI.crear(payload)
       setSuccess(`ODT ${creado.data.numero_odt} creada correctamente`)
@@ -252,8 +307,15 @@ const Viajes: React.FC = () => {
       estado: editForm.estado,
     }
     if (editForm.valor_flete_manifiesto) payload.valor_flete_manifiesto = Number(editForm.valor_flete_manifiesto)
-    if (editForm.retefuente_valor) payload.retefuente_valor = Number(editForm.retefuente_valor)
-    if (editForm.reteica_valor) payload.reteica_valor = Number(editForm.reteica_valor)
+    // FASE A2: solo inputs manuales; retenciones/comision/saldo/utilidad => servidor
+    if (editForm.retefuente_porcentaje) payload.retefuente_porcentaje = Number(editForm.retefuente_porcentaje)
+    if (editForm.reteica_porcentaje) payload.reteica_porcentaje = Number(editForm.reteica_porcentaje)
+    if (editForm.tipo_viaje) payload.tipo_viaje = editForm.tipo_viaje
+    payload.empresa_manifiesto_id = editForm.empresa_manifiesto_id ? Number(editForm.empresa_manifiesto_id) : null
+    if (editForm.fecha_manifiesto) payload.fecha_manifiesto = editForm.fecha_manifiesto
+    if (editForm.otras_deducciones) payload.otras_deducciones = Number(editForm.otras_deducciones)
+    if (editForm.anticipo_manifiesto) payload.anticipo_manifiesto = Number(editForm.anticipo_manifiesto)
+    if (editForm.porcentaje_comision) payload.porcentaje_comision = Number(editForm.porcentaje_comision)
     payload.origen_municipio_id = editForm.origen_municipio_id ? Number(editForm.origen_municipio_id) : null
     payload.destino_municipio_id = editForm.destino_municipio_id ? Number(editForm.destino_municipio_id) : null
 
@@ -283,6 +345,19 @@ const Viajes: React.FC = () => {
       setEliminarError(extraerMensajeError(err))
     } finally {
       setEliminando(false)
+    }
+  }
+
+  const verBloqueosCierre = async (viaje: Viaje) => {
+    setCargandoBloqueos(viaje.id)
+    setError('')
+    try {
+      const res = await viajesAPI.bloqueosCierre(viaje.id)
+      setBloqueosInfo({ numero_odt: res.numero_odt, cercable: res.cercable, bloqueos: res.bloqueos })
+    } catch (err) {
+      setError(extraerMensajeError(err))
+    } finally {
+      setCargandoBloqueos(null)
     }
   }
 
@@ -322,6 +397,29 @@ const Viajes: React.FC = () => {
         </select>
       )
     }
+    if (campo === 'tipo_viaje') {
+      return (
+        <select name={campo} value={editForm[campo] || 'nacional'} onChange={handleEditChange} className="input-truck">
+          {tipoViajeItems.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+      )
+    }
+    if (campo === 'empresa_manifiesto_id') {
+      return (
+        <select name={campo} value={editForm[campo] || ''} onChange={handleEditChange} className="input-truck">
+          <option value="">Sin empresa / cliente</option>
+          {proveedores.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.nombre_comercial || p.razon_social}
+            </option>
+          ))}
+        </select>
+      )
+    }
     if (campo === 'origen') {
       return (
         <SelectorCiudad
@@ -338,10 +436,10 @@ const Viajes: React.FC = () => {
         />
       )
     }
-    const esNumero = ['valor_flete_manifiesto', 'retefuente_valor', 'reteica_valor'].includes(campo)
+    const esNumero = ['valor_flete_manifiesto', 'retefuente_porcentaje', 'reteica_porcentaje', 'otras_deducciones', 'anticipo_manifiesto', 'porcentaje_comision'].includes(campo)
     return (
       <input
-        type={campo === 'fecha_salida' ? 'date' : esNumero ? 'number' : 'text'}
+        type={campo === 'fecha_salida' || campo === 'fecha_manifiesto' ? 'date' : esNumero ? 'number' : 'text'}
         name={campo}
         value={editForm[campo] || ''}
         onChange={handleEditChange}
@@ -359,9 +457,15 @@ const traduccionCampo: Record<string, string> = {
   origen: 'Origen',
   destino: 'Destino',
   fecha_salida: 'Fecha salida',
+  tipo_viaje: 'Tipo de viaje',
+  empresa_manifiesto_id: 'Empresa / Cliente',
+  fecha_manifiesto: 'Fecha manifiesto',
   valor_flete_manifiesto: 'Valor flete manifiesto',
-  retefuente_valor: 'Retefuente valor',
-  reteica_valor: 'Reteica valor',
+  retefuente_porcentaje: 'Retefuente %',
+  reteica_porcentaje: 'Reteica %',
+  otras_deducciones: 'Otras deducciones',
+  anticipo_manifiesto: 'Anticipo de manifiesto',
+  porcentaje_comision: '% Comisión',
   estado: 'Estado',
 }
 
@@ -379,6 +483,13 @@ const margenDe = (viaje: Viaje): number | null => {
   if (!viaje.flete_neto && !viaje.valor_flete_manifiesto) return null
   return neto - (gastosPorViaje[viaje.id] || 0)
 }
+
+const FilaCalculada: React.FC<{ label: string; valor: number; tono?: string }> = ({ label, valor, tono = 'text-white' }) => (
+  <div className="flex items-center justify-between gap-2">
+    <span className="text-slate-400">{label}</span>
+    <span className={tono}>{formatearMoneda(Math.round(valor * 100) / 100)}</span>
+  </div>
+)
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -489,29 +600,108 @@ const margenDe = (viaje: Viaje): number | null => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Retefuente Valor</label>
+            <label className="block text-sm font-medium text-slate-300 mb-1">Retefuente %</label>
             <input
               type="number"
-              name="retefuente_valor"
-              value={form.retefuente_valor}
+              name="retefuente_porcentaje"
+              value={form.retefuente_porcentaje}
               onChange={handleChange}
               className="input-truck"
-              placeholder="100.000"
+              placeholder="1"
+              min="0"
+              max="100"
+              step="0.01"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">Reteica %</label>
+            <input
+              type="number"
+              name="reteica_porcentaje"
+              value={form.reteica_porcentaje}
+              onChange={handleChange}
+              className="input-truck"
+              placeholder="0.5"
+              min="0"
+              max="100"
+              step="0.01"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">Tipo de viaje</label>
+            <select name="tipo_viaje" value={form.tipo_viaje} onChange={handleChange} className="input-truck">
+              {tipoViajeItems.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">Empresa / Cliente que despacha</label>
+            <select name="empresa_manifiesto_id" value={form.empresa_manifiesto_id} onChange={handleChange} className="input-truck">
+              <option value="">Sin empresa / cliente</option>
+              {proveedores.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nombre_comercial || p.razon_social}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">Fecha manifiesto</label>
+            <input
+              type="date"
+              name="fecha_manifiesto"
+              value={form.fecha_manifiesto}
+              onChange={handleChange}
+              className="input-truck"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">Otras deducciones</label>
+            <input
+              type="number"
+              name="otras_deducciones"
+              value={form.otras_deducciones}
+              onChange={handleChange}
+              className="input-truck"
+              placeholder="0"
               min="0"
               step="0.01"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Reteica Valor</label>
+            <label className="block text-sm font-medium text-slate-300 mb-1">Anticipo de manifiesto</label>
             <input
               type="number"
-              name="reteica_valor"
-              value={form.reteica_valor}
+              name="anticipo_manifiesto"
+              value={form.anticipo_manifiesto}
               onChange={handleChange}
               className="input-truck"
-              placeholder="50.000"
+              placeholder="0"
               min="0"
+              step="0.01"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">% Comisión conductor</label>
+            <input
+              type="number"
+              name="porcentaje_comision"
+              value={form.porcentaje_comision}
+              onChange={handleChange}
+              className="input-truck"
+              placeholder="10 (default del conductor)"
+              min="0"
+              max="100"
               step="0.01"
             />
           </div>
@@ -531,6 +721,35 @@ const margenDe = (viaje: Viaje): number | null => {
               ))}
             </select>
           </div>
+
+          {(() => {
+            const flete = Number(form.valor_flete_manifiesto) || 0
+            const rfuenteValor = Math.round(flete * ((Number(form.retefuente_porcentaje) || 0) / 100) * 100) / 100
+            const ricaValor = Math.round(flete * ((Number(form.reteica_porcentaje) || 0) / 100) * 100) / 100
+            const otras = Number(form.otras_deducciones) || 0
+            const anticipo = Number(form.anticipo_manifiesto) || 0
+            const comisionPct = Number(form.porcentaje_comision) || 10
+            const fleteNeto = Math.round((flete - rfuenteValor - ricaValor - otras) * 100) / 100
+            const comision = Math.round((fleteNeto * comisionPct) / 100 * 100) / 100
+            return flete > 0 ? (
+              <div className="md:col-span-2 lg:col-span-3">
+                <div className="rounded-lg border border-primary-500/30 bg-primary-500/5 p-4">
+                  <p className="text-sm font-semibold text-primary-300 mb-2 flex items-center gap-2">
+                    <Calculator size={16} />
+                    Vista previa estimada (el servidor recalcula al guardar)
+                  </p>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1 text-sm">
+                    <FilaCalculada label="Retefuente valor" valor={rfuenteValor} />
+                    <FilaCalculada label="Reteica valor" valor={ricaValor} />
+                    <FilaCalculada label="Flete neto" valor={fleteNeto} tono="text-blue-400" />
+                    <FilaCalculada label={`Comisión (${comisionPct}%)`} valor={comision} tono="text-orange-400" />
+                    <FilaCalculada label="Saldo flete esperado" valor={Math.round((fleteNeto - anticipo) * 100) / 100} tono="text-green-400" />
+                    <FilaCalculada label="Utilidad est. (sin gastos)" valor={Math.round((fleteNeto - comision) * 100) / 100} tono="text-green-400" />
+                  </div>
+                </div>
+              </div>
+            ) : null
+          })()}
 
           <div className="md:col-span-2 lg:col-span-3 flex items-end justify-end">
             <button
@@ -585,6 +804,7 @@ const margenDe = (viaje: Viaje): number | null => {
                   <th className="py-2 px-3">Ruta</th>
                   <th className="py-2 px-3">Fecha Salida</th>
                   <th className="py-2 px-3">Flete Neto</th>
+                  <th className="py-2 px-3">Utilidad</th>
                   <th className="py-2 px-3">Margen Est.</th>
                   <th className="py-2 px-3">Estado</th>
                   {!esConductor && <th className="py-2 px-3 text-right">Acciones</th>}
@@ -605,6 +825,15 @@ const margenDe = (viaje: Viaje): number | null => {
                       <td className="py-3 px-3 text-slate-400">{viaje.fecha_salida}</td>
                       <td className="py-3 px-3 text-white">{viaje.flete_neto ? `$${Number(viaje.flete_neto).toLocaleString('es-CO')}` : '-'}</td>
                       <td className="py-3 px-3">
+                        {viaje.utilidad_neta_odt != null ? (
+                          <span className={`font-semibold ${Number(viaje.utilidad_neta_odt) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {formatearMoneda(Number(viaje.utilidad_neta_odt))}
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">-</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3">
                         {(() => {
                           const margen = margenDe(viaje)
                           if (margen === null) return <span className="text-slate-500">-</span>
@@ -623,6 +852,14 @@ const margenDe = (viaje: Viaje): number | null => {
                       {!esConductor && (
                         <td className="py-3 px-3">
                           <div className="flex items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={() => verBloqueosCierre(viaje)}
+                              className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-amber-400 transition-colors"
+                              title="Bloqueos de cierre"
+                            >
+                              {cargandoBloqueos === viaje.id ? <Loader2 size={16} className="animate-spin" /> : <ShieldAlert size={16} />}
+                            </button>
                             <button
                               type="button"
                               onClick={() => abrirEdicion(viaje)}
@@ -744,6 +981,60 @@ const margenDe = (viaje: Viaje): number | null => {
               >
                 {eliminando ? <Loader2 className="animate-spin" size={20} /> : <Trash2 size={18} />}
                 {eliminando ? 'Eliminando...' : 'Eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bloqueosInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="card-truck w-full max-w-md">
+            <div className="flex items-start gap-3 mb-4">
+              <div className={`p-2 rounded-full ${bloqueosInfo.cercable ? 'bg-green-500/20 text-green-500' : 'bg-amber-500/20 text-amber-500'}`}>
+                <ShieldAlert size={22} />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-white">Bloqueos de cierre</h3>
+                <p className="text-sm text-slate-400 mt-1">
+                  ODT <span className="text-white font-semibold">{bloqueosInfo.numero_odt}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBloqueosInfo(null)}
+                className="p-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {bloqueosInfo.cercable ? (
+              <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/30 text-green-500 px-4 py-3 rounded-lg">
+                <CheckCircle2 size={18} />
+                <span>La ODT no presenta bloqueos y puede finalizarse.</span>
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {bloqueosInfo.bloqueos.map((b, idx) => (
+                  <li
+                    key={idx}
+                    className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-500 px-4 py-3 rounded-lg text-sm"
+                  >
+                    <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                    <span>{b}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="flex items-center justify-end gap-2 mt-4">
+              <button
+                type="button"
+                onClick={() => setBloqueosInfo(null)}
+                className="py-2 px-4 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
+              >
+                Cerrar
               </button>
             </div>
           </div>
