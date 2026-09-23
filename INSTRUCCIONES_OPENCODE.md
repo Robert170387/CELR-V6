@@ -42,6 +42,9 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
   viajes_odt=24, gastos=37, ingresos=8, liquidaciones_conductores=6, refresh_tokens=0`;
   `km_actual` SKN756 = `125000.00`; max ODT `ODT-2026-000030`.
 - `secuencias_documento` **no se resetea** (nunca rewinds ni edits manuales).
+- **Producción (Render):** cada entorno tiene su propia BD, así que `secuencias_documento`
+  arranca en cero → los primeros ODT serán `ODT-2026-000001…`. **Es normal, no es un bug**;
+  no comparar números ODT entre entornos.
 
 ## 5. Estado actual
 
