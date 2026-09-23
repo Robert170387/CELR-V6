@@ -273,10 +273,12 @@ a1b2c3d4e5f6  (head) — FASE A2: modelo contable/operativo
 
 ```
 rama local  = main
-HEAD local  = 5738e51  (FASE A2 - pruebas: suites realineadas + fixes)
+HEAD local  = 962ee79  (FASE 2.D - fix frontend offlineStore)
 origin/main = 317fbe2  (feat: gastos sin ODT, página de ingresos, ...)
-local adelante = 9 commits (b802d82 → e45adb7 → dcd03b5 → baa2933 → 64a2fa9 → 1da3b0b →
-                             8b36f17 → b9e665e → 5738e51)  — SIN PUSH aun
+local adelante = 15 commits — SIN PUSH aun
+                 (FASE A2: b802d82 → e45adb7 → dcd03b5 → baa2933 → 64a2fa9 → 1da3b0b →
+                  8b36f17 → b9e665e → 5738e51)
+                 (FASE 2:  165078e → 2e38ee4 → e0bf6bd → a73c952 → 962ee79)
 working tree = limpio (solo los CONTEXTO_*.md untracked, no modificados)
 ```
 
@@ -290,39 +292,56 @@ Historial reciente relevante:
 | `1da3b0b`, `8b36f17` | **FASE A2 backend** — enums nuevos, recálculo server-side, `GET /liquidaciones/compensado` |
 | `b9e665e` | **FASE A2 frontend** — ODT con inputs/calculados, enums ingreso/gasto, pantalla COMPENSADO_RC |
 | `5738e51` | **FASE A2 pruebas** — suites realineadas + fixes (literal `anticipo_manifiesto`, FK viaje→404, duplicados sin soft-delete, `test_rbac`/`test_auth` idempotentes) |
+| `165078e` | **FASE 2.0** — doc: corregida afirmación sobre `/municipios` (requiere auth, no es público ni pre-login) |
+| `2e38ee4` | **FASE 2.A** — `requests` en el venv del backend (E2E sin depender del Python del sistema) |
+| `e0bf6bd` | **FASE 2.B** — suites: limpieza de datos al final (DELETE real en orden inverso de FK) |
+| `a73c952` | **FASE 2.C** — `backend/scripts/smoke.py` (humo: conexión, migraciones head, seed, login, conteos baseline) |
+| `962ee79` | **FASE 2.D** — frontend: import de `offlineStore` unificado a estático (warning Vite eliminado) |
 
 ### BD / Docker / tests
 
-- BD viva: migraciones **hasta `a1b2c3d4e5f6` (head)**; municipios DIVIPOLA sembrados.
-- Stack Docker: **reconstruido y operativo** hoy (backend `:8001`, web `:5174`, DB `:5433`).
+- BD viva: migraciones **hasta `a1b2c3d4e5f6` (head)**; municipios DIVIPOLA sembrados (1122).
+- Baseline estable verificada (2.B/2.C y hoy): `usuarios=7, vehiculos=9, conductores=7,
+  proveedores=6, viajes_odt=24, gastos=37, ingresos=8, liquidaciones_conductores=6,
+  refresh_tokens=0`; `km_actual` SKN756 = `125000.00`; max ODT = `ODT-2026-000030`.
+  **Residuo documentado (2.E cancelada):** 6 usuarios históricos `cli-*`/`cond-*@celr.com`
+  (ids 13–16, 20–21), 0 referencias FK — no borrados por decisión de FASE 2.
+- Stack Docker: **operativo** (backend `:8001`, web `:5174`, DB `:5433`).
   Login verificado: `test@celr.com`/`admin123` → 200 con access+refresh, vía `:5174` y `:8001`.
-- **Tests backend: 8/8 en verde** (`test_auth`, `test_rbac`, `test_liquidaciones`,
-  `test_gasto_sin_odt`, `test_gasto_combustible`, `test_put_delete`, `test_ocr`,
-  `test_endpoints`) — corridas 3 veces seguidas tras los fixes de `5738e51`.
-- **E2E completo en verde** contra servidor vivo (Auth → ODT `flete_neto=850000` →
-  anti-duplicado 400 → balance 415000 → cierre `liquidado`).
-- `npm run build` (tsc + vite) **en verde**.
+- **Tests backend: 8/8 en verde con limpieza propia** (2.B): cada suite borra los datos que crea
+  (DELETE real, orden inverso de FK) y la BD vuelve al baseline; gate 3×3 verdes.
+- **Smoke `[SMOKE OK]`** (2.C): conexión, migraciones en head, seed, login, conteos baseline.
+- **E2E completo en verde** (2.A, re-verificado con el venv, `requests` 2.34.2):
+  Auth → ODT `flete_neto=850000` → anti-duplicado 400 → balance 415000 → cierre `liquidado`.
+- `npm run build` (tsc + vite) **en verde y sin warnings de chunking** (2.D: `offlineStore`
+  unificado a import estático).
 
 ---
 
 ## 10. Cómo correr las suites (referencia rápida)
 
 ```powershell
-# Tests backend (desde backend/, PYTHONPATH=. y DATABASE_URL set)
+# Tests backend (desde backend/, PYTHONPATH=. y DATABASE_URL a :5433)
 venv\Scripts\python.exe scripts/test_auth.py
 venv\Scripts\python.exe scripts/test_liquidaciones.py
 # ... (test_rbac, test_gasto_sin_odt, test_gasto_combustible, test_put_delete,
 #      test_ocr, test_endpoints, verify_models)
 
-# E2E (requiere servidor corriendo, p. ej. Docker :8001)
-# Se ejecuta con el venv del backend (ya incluye `requests`):
+# Smoke post-migración (2.C): conexión, migraciones head, seed, login, conteos baseline
+venv\Scripts\python.exe scripts\smoke.py
+
+# E2E (requiere servidor corriendo, p. ej. Docker :8001; venv ya incluye `requests` desde 2.A)
 $env:PYTHONUTF8="1"
 $env:CELR_BASE_URL="http://localhost:8001"
 venv\Scripts\python.exe ..\scripts\e2e_flow_test.py  # desde backend/
+# Si se captura la salida por pipe (Tee), añadir además: $env:PYTHONIOENCODING="utf-8"
+# (el check ✓ del E2E revienta con cp1252 bajo pipe).
 ```
 
-> Los tests dejan **datos de prueba en la BD real** (no hay borrado en lote). Los principales ya
-> son idempotentes tras los fixes de FASE A2.
+> Desde **2.B**, cada suite backend borra los datos que crea (DELETE real en orden inverso de FK):
+> la BD queda con el mismo baseline al inicio y al final de cada corrida. El **E2E sí deja datos**
+> de demostración en la BD real (viaje liquidado + liquidación) — limpiar manualmente si se
+> requiere (purge de `viajes_odt` con `numero_odt > 'ODT-2026-000030'` y sus hijos).
 
 ---
 
@@ -330,7 +349,7 @@ venv\Scripts\python.exe ..\scripts\e2e_flow_test.py  # desde backend/
 
 ### P1 — Operativo / entrega (requiere autorización + credenciales del usuario)
 
-1. **Push a GitHub de los 9 commits.** `origin = https://github.com/Robert170387/CELR-V6.git`,
+1. **Push a GitHub de los 15 commits.** `origin = https://github.com/Robert170387/CELR-V6.git`,
    rama `main`, hoy **sin upstream de push** y **sin credencial de escritura** (se requiere un
    **PAT** del usuario). Comando (cuando el usuario lo autorice):
    ```powershell
@@ -350,14 +369,17 @@ venv\Scripts\python.exe ..\scripts\e2e_flow_test.py  # desde backend/
    de diseñarlo.**
 5. **Actualizar los `CONTEXTO_*.md` antiguos** (opcional, son del usuario y están obsoletos en
    las secciones de FASE A1). No borrarlos sin que el usuario lo pida.
+6. **Residuo 2.E (cancelada, documentado):** 6 usuarios históricos `cli-*@celr.com` /
+   `cond-*@celr.com` (ids 13, 14, 15, 16, 20, 21) siguen en la BD con **0 referencias FK**.
+   FASE 2 decidió **no borrarlos** (2.E cancelada); si el negocio lo pide, borrarlos con OK explícito.
 
 ### P2 — Deuda técnica / optimizaciones sugeridas
 
-1. **Tests:** implementar **limpieza de datos al final** (hoy dejan registros en la BD real) o
-   usar transacciones desechables. Riesgo actual: el volumen de datos de prueba crece sin límite
-   y puede contaminar reportes.
-2. **E2E:** el venv del backend **no tiene `requests`** (usa el Python del sistema). Opción
-   limpia: añadir `requests` a `requirements.txt` (o migrar el script a `httpx`, que ya es dep).
+1. ~~**Tests:** implementar **limpieza de datos al final**…~~ → ✅ **HECHO en FASE 2 (2.B):**
+   `e0bf6bd` — las 8 suites borran los datos que crean (DELETE real, orden inverso de FK);
+   la BD vuelve al baseline al final de cada corrida.
+2. ~~**E2E:** el venv del backend **no tiene `requests`**…~~ → ✅ **HECHO en FASE 2 (2.A):**
+   `2e38ee4` — `requests>=2.31` en `requirements.txt` e instalado en el venv (2.34.2).
 3. **Seguridad de tokens:** mover el `refresh_token` de `localStorage` a **cookie
    `HttpOnly; Secure; SameSite=Lax`** (alternativa documentada en `backend/README.md`, no
    aplicada porque rompería el flujo offline). Valorar con el usuario si la compensación XSS
@@ -367,8 +389,9 @@ venv\Scripts\python.exe ..\scripts\e2e_flow_test.py  # desde backend/
 5. **OCR:** local con Tesseract (`spa`). El motor **Google Vision** queda comentado en
    `requirements.txt` (`OCR_ENGINE=google` + `google-cloud-vision`) para cuando se quiera calidad
    cloud. El hash anti-duplicado ya es lógico (no depende de la imagen).
-6. **Build de frontend:** warning de Vite (`offlineStore.ts` es dynamic-imported y a la vez
-   static-imported → no mueve el módulo a otro chunk). Optimización menor de chunking.
+6. ~~**Build de frontend:** warning de Vite (`offlineStore.ts` dynamic y static-imported…)~~ →
+   ✅ **HECHO en FASE 2 (2.D):** `962ee79` — import unificado a estático; `npm run build` verde
+   y sin warnings de chunking.
 7. **Herramientas de calidad:** no hay ESLint/Prettier. Opcional estandarizar (los `noUnused*`
    del TS ya actúan como guardarraíl).
 8. **Backups:** conviene un `pg_dump` programado de `celr_v6_db` (5433) antes de migraciones
@@ -376,8 +399,8 @@ venv\Scripts\python.exe ..\scripts\e2e_flow_test.py  # desde backend/
 9. **Fases de seguridad futuras** (de la auditoría, NO autorizadas aun): S3 refresh-rotate
    hardening adicional, S4 rate limit escalado/distribuido, envío SMTP de restablecimiento de
    contraseña obligatorio. **Solo con autorización explícita.**
-10. **Pruebas de humo post-migración:** tras tocar esquema, correr `verify_models.py` + la
-    suite backend + E2E (rutina estándar ya adoptada en FASE A2).
+10. **Pruebas de humo post-migración:** correr `scripts/smoke.py` (humo formalizado en 2.C) +
+    la suite backend + E2E (rutina estándar ya adoptada en FASE A2, ver §10).
 
 ---
 
