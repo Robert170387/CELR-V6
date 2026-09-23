@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from typing import Optional
 from datetime import date, datetime
 from decimal import Decimal
@@ -13,22 +13,35 @@ class ViajeCreate(BaseModel):
     origen_municipio_id: Optional[int] = None
     destino_municipio_id: Optional[int] = None
     empresa_manifiesto: Optional[str] = Field(None, max_length=150)
+    # FASE A2 — cliente que despacha la carga (FK a proveedores) + fecha de manifiesto
+    empresa_manifiesto_id: Optional[int] = None
+    fecha_manifiesto: Optional[date] = None
     tipo_carga: Optional[str] = Field(None, max_length=100)
     peso_declarado_ton: Optional[Decimal] = Field(None, ge=0)
     peso_bascula_origen: Optional[Decimal] = Field(None, ge=0)
     peso_bascula_destino: Optional[Decimal] = Field(None, ge=0)
     valor_flete_manifiesto: Optional[Decimal] = Field(None, ge=0)
     retefuente_porcentaje: Optional[Decimal] = Field(None, ge=0, le=100)
-    retefuente_valor: Optional[Decimal] = Field(None, ge=0)
     reteica_porcentaje: Optional[Decimal] = Field(None, ge=0, le=100)
-    reteica_valor: Optional[Decimal] = Field(None, ge=0)
     fecha_salida: date
     fecha_llegada: Optional[date] = None
     km_inicial: Optional[Decimal] = Field(None, ge=0)
     km_final: Optional[Decimal] = Field(None, ge=0)
     estado: Optional[str] = Field("en_curso", max_length=20)
     observaciones: Optional[str] = None
+    # FASE A2 — inputs manuales de la ODT
+    tipo_viaje: str = Field("nacional", max_length=20)
+    otras_deducciones: Optional[Decimal] = Field(None, ge=0)
+    anticipo_manifiesto: Optional[Decimal] = Field(None, ge=0)
+    porcentaje_comision: Optional[Decimal] = Field(None, ge=0, le=100)
     creado_por: Optional[int] = None
+
+    @validator("tipo_viaje")
+    def validate_tipo_viaje(cls, v):
+        allowed = {"urbano", "nacional", "internacional", "vacio"}
+        if v not in allowed:
+            raise ValueError(f"debe ser uno de {allowed}")
+        return v
 
 
 class ViajeUpdate(BaseModel):
@@ -41,22 +54,35 @@ class ViajeUpdate(BaseModel):
     origen_municipio_id: Optional[int] = None
     destino_municipio_id: Optional[int] = None
     empresa_manifiesto: Optional[str] = Field(None, max_length=150)
+    empresa_manifiesto_id: Optional[int] = None
+    fecha_manifiesto: Optional[date] = None
     tipo_carga: Optional[str] = Field(None, max_length=100)
     peso_declarado_ton: Optional[Decimal] = Field(None, ge=0)
     peso_bascula_origen: Optional[Decimal] = Field(None, ge=0)
     peso_bascula_destino: Optional[Decimal] = Field(None, ge=0)
     valor_flete_manifiesto: Optional[Decimal] = Field(None, ge=0)
     retefuente_porcentaje: Optional[Decimal] = Field(None, ge=0, le=100)
-    retefuente_valor: Optional[Decimal] = Field(None, ge=0)
     reteica_porcentaje: Optional[Decimal] = Field(None, ge=0, le=100)
-    reteica_valor: Optional[Decimal] = Field(None, ge=0)
     fecha_salida: Optional[date] = None
     fecha_llegada: Optional[date] = None
     km_inicial: Optional[Decimal] = Field(None, ge=0)
     km_final: Optional[Decimal] = Field(None, ge=0)
     estado: Optional[str] = Field(None, max_length=20)
     observaciones: Optional[str] = None
+    tipo_viaje: Optional[str] = Field(None, max_length=20)
+    otras_deducciones: Optional[Decimal] = Field(None, ge=0)
+    anticipo_manifiesto: Optional[Decimal] = Field(None, ge=0)
+    porcentaje_comision: Optional[Decimal] = Field(None, ge=0, le=100)
     creado_por: Optional[int] = None
+
+    @validator("tipo_viaje")
+    def validate_tipo_viaje(cls, v):
+        if v is None:
+            return v
+        allowed = {"urbano", "nacional", "internacional", "vacio"}
+        if v not in allowed:
+            raise ValueError(f"debe ser uno de {allowed}")
+        return v
 
 
 class ViajeResponse(BaseModel):
@@ -70,6 +96,8 @@ class ViajeResponse(BaseModel):
     origen_municipio_id: Optional[int]
     destino_municipio_id: Optional[int]
     empresa_manifiesto: Optional[str]
+    empresa_manifiesto_id: Optional[int]
+    fecha_manifiesto: Optional[date]
     tipo_carga: Optional[str]
     peso_declarado_ton: Optional[Decimal]
     peso_bascula_origen: Optional[Decimal]
@@ -80,6 +108,15 @@ class ViajeResponse(BaseModel):
     reteica_porcentaje: Optional[Decimal]
     reteica_valor: Optional[Decimal]
     flete_neto: Optional[Decimal]
+    tipo_viaje: str
+    otras_deducciones: Optional[Decimal]
+    anticipo_manifiesto: Optional[Decimal]
+    porcentaje_comision: Optional[Decimal]
+    comision_conductor: Optional[Decimal]
+    saldo_flete_esperado: Optional[Decimal]
+    gastos_totales_viaje: Optional[Decimal]
+    utilidad_neta_odt: Optional[Decimal]
+    anio: Optional[int]
     fecha_salida: date
     fecha_llegada: Optional[date]
     km_inicial: Optional[Decimal]

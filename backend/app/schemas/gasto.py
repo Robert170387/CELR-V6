@@ -25,6 +25,9 @@ class GastoCreate(BaseModel):
     url_imagen: Optional[str] = None
     datos_ocr_json: Optional[dict] = None
     estado_validacion: Optional[str] = Field("pendiente", max_length=20)
+    # FASE A2 — pago y legalizacion del gasto
+    metodo_pago: str = Field(default="efectivo", max_length=20)
+    estado_pago: str = Field(default="pagado", max_length=20)
 
     @validator("responsable_pago")
     def validate_responsable_pago(cls, v):
@@ -36,6 +39,20 @@ class GastoCreate(BaseModel):
     @validator("asumido_por")
     def validate_asumido_por(cls, v):
         allowed = {"empresa", "owner", "conductor"}
+        if v not in allowed:
+            raise ValueError(f"debe ser uno de {allowed}")
+        return v
+
+    @validator("metodo_pago")
+    def validate_metodo_pago(cls, v):
+        allowed = {"efectivo", "tarjeta", "transferencia", "tag"}
+        if v not in allowed:
+            raise ValueError(f"debe ser uno de {allowed}")
+        return v
+
+    @validator("estado_pago")
+    def validate_estado_pago(cls, v):
+        allowed = {"pagado", "pendiente_por_pagar", "legalizado"}
         if v not in allowed:
             raise ValueError(f"debe ser uno de {allowed}")
         return v
@@ -62,6 +79,8 @@ class GastoUpdate(BaseModel):
     url_imagen: Optional[str] = None
     datos_ocr_json: Optional[dict] = None
     estado_validacion: Optional[str] = Field(None, max_length=20)
+    metodo_pago: Optional[str] = Field(None, max_length=20)
+    estado_pago: Optional[str] = Field(None, max_length=20)
 
     @validator("responsable_pago")
     def validate_responsable_pago(cls, v):
@@ -73,6 +92,20 @@ class GastoUpdate(BaseModel):
     @validator("asumido_por")
     def validate_asumido_por(cls, v):
         allowed = {"empresa", "owner", "conductor"}
+        if v is not None and v not in allowed:
+            raise ValueError(f"debe ser uno de {allowed}")
+        return v
+
+    @validator("metodo_pago")
+    def validate_metodo_pago(cls, v):
+        allowed = {"efectivo", "tarjeta", "transferencia", "tag"}
+        if v is not None and v not in allowed:
+            raise ValueError(f"debe ser uno de {allowed}")
+        return v
+
+    @validator("estado_pago")
+    def validate_estado_pago(cls, v):
+        allowed = {"pagado", "pendiente_por_pagar", "legalizado"}
         if v is not None and v not in allowed:
             raise ValueError(f"debe ser uno de {allowed}")
         return v
@@ -105,6 +138,9 @@ class GastoResponse(BaseModel):
     fecha_aprobacion: Optional[datetime]
     motivo_rechazo: Optional[str]
     reportado_por: Optional[int]
+    metodo_pago: str
+    estado_pago: str
+    legalizado: Optional[bool]
     creado_en: datetime
     actualizado_en: datetime
 

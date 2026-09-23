@@ -12,9 +12,10 @@ from app.core.config import settings
 from app.core.roles import ROLES_LIQUIDACIONES
 from app.db.session import get_db
 from app.models.flota import Usuario, Vehiculo
-from app.models.operaciones import Gasto
+from app.models.operaciones import Gasto, ViajeODT
 from app.schemas.gasto import GastoCreate, GastoUpdate, GastoResponse
 from app.services.ocr_service import OCRService
+from app.services.operaciones import recalcular_viaje
 from app.services.ubicacion import autocompletar_municipio_texto, autocompletar_municipio_orm
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,7 @@ def registrar_gasto(
     db_gasto = Gasto(**data)
     db.add(db_gasto)
     _aplicar_km_actual(db, data)
+    _recalcular_viaje_de_gasto(db, data.get("viaje_id"))
     try:
         db.commit()
     except IntegrityError:
@@ -111,6 +113,21 @@ def _aplicar_km_actual(db: Session, data: dict) -> None:
     veh = db.query(Vehiculo).filter(Vehiculo.id == vehiculo_id).first()
     if veh and Decimal(km) > veh.km_actual:
         veh.km_actual = Decimal(km)
+
+
+def _recalcular_viaje_de_gasto(db: Session, viaje_id: Optional[int]) -> None:
+    """Recalcula la ODT vinculada tras crear/editar/eliminar un gasto.
+
+    Los snapshots de la ODT (gastos_totales_viaje, utilidad_neta_odt, comision)
+    dependen de los gastos; FASE A2 los mantiene al dia en la misma transaccion.
+    """
+    if not viaje_id:
+        return
+    viaje = db.query(ViajeODT).filter(ViajeODT.id == viaje_id).first()
+    if not viaje:
+        return
+    db.flush()
+    recalcular_viaje(db, viaje)
 
 
 def _calcular_hash_gasto(db: Session, data: dict, viaje_id: Optional[int]) -> str:
@@ -203,6 +220,7 @@ def actualizar_gasto(
     if not db_gasto:
         raise HTTPException(status_code=404, detail="Gasto no encontrado")
     update_data = gasto.model_dump(exclude_unset=True)
+    viaje_original_id = db_gasto.viaje_id
     for key, value in update_data.items():
         setattr(db_gasto, key, value)
     autocompletar_municipio_orm(db, db_gasto, "ciudad_abastecimiento", "ciudad_abastecimiento_municipio_id")
@@ -241,6 +259,9 @@ def actualizar_gasto(
     if estado:
         db_gasto.estado_validacion = estado
     _aplicar_km_actual(db, efectivo)
+    # Recalcular la ODT vincula entrante y, si se cambio de viaje, tambien la anterior
+    for vid in {db_gasto.viaje_id, viaje_original_id}:
+        _recalcular_viaje_de_gasto(db, vid)
     try:
         db.commit()
     except IntegrityError:
@@ -269,6 +290,7 @@ def eliminar_gasto(
         raise HTTPException(status_code=404, detail="Gasto no encontrado")
     db_gasto.eliminado_en = datetime.now(timezone.utc)
     db_gasto.eliminado_por = current_user.id
+    _recalcular_viaje_de_gasto(db, db_gasto.viaje_id)
     db.commit()
     return None
 

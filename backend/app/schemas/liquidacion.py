@@ -35,6 +35,11 @@ class LiquidacionCreate(BaseModel):
     gastos_a_cargo_conductor: Decimal = Field(default=0, ge=0)
     prestamos: Decimal = Field(default=0, ge=0)
     otros_descuentos: Decimal = Field(default=0, ge=0)
+    # FASE A2 — COMPENSADO_RC: inputs manuales adicionales
+    salario_basico: Decimal = Field(default=0, ge=0)
+    auxilio_transporte: Decimal = Field(default=0, ge=0)
+    papeleria: Decimal = Field(default=0, ge=0)
+    descuento_salud_pension: Decimal = Field(default=0, ge=0)
     viajes_ids: Optional[list[int]] = None
     estado: Optional[str] = Field("aprobado", max_length=20)
     fecha_pago: Optional[date] = None

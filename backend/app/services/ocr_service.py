@@ -24,7 +24,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.operaciones import Gasto
+from app.models.operaciones import Gasto, ViajeODT
 from app.services.hashing import (
     normalized_emisor,
     compute_logical_hash,
@@ -32,6 +32,7 @@ from app.services.hashing import (
 )
 from app.services.ocr_engines import get_ocr_engine
 from app.services.ocr_parser import extract_receipt_fields
+from app.services.operaciones import recalcular_viaje
 
 logger = logging.getLogger(__name__)
 
@@ -217,6 +218,12 @@ class OCRService:
             reportado_por=reportado_por,
         )
         self.db.add(gasto)
+        # FASE A2: mantener los snapshots de la ODT al dia (gastos_totales_viaje)
+        if viaje_id:
+            viaje = self.db.query(ViajeODT).filter(ViajeODT.id == viaje_id).first()
+            if viaje:
+                self.db.flush()
+                recalcular_viaje(self.db, viaje)
         self.db.commit()
         self.db.refresh(gasto)
 

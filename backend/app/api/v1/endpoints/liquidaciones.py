@@ -13,6 +13,7 @@ from app.models.flota import Usuario, Conductor
 from app.models.operaciones import ViajeODT, Gasto
 from app.models.financiero import LiquidacionConductor, Ingreso
 from app.schemas.liquidacion import LiquidacionCalculateResponse, LiquidacionCreate
+from app.services.operaciones import consolidar_compensado
 
 router = APIRouter(dependencies=[Depends(RoleChecker(ROLES_LIQUIDACIONES))])
 
@@ -165,6 +166,10 @@ def cerrar_liquidacion(
             detail="Quien crea la liquidación no puede ser quien la aprueba",
         )
 
+    # COMPENSADO_RC (FASE A2): consolidados del periodo calculados por el servidor
+    # (conteo de viajes, comisiones totales y retiros de tarjeta cruzados).
+    consolidado = consolidar_compensado(db, data.conductor_id, data.periodo_inicio, data.periodo_fin)
+
     liquidacion = LiquidacionConductor(
         conductor_id=data.conductor_id,
         vehiculo_id=data.vehiculo_id,
@@ -172,6 +177,17 @@ def cerrar_liquidacion(
         periodo_fin=data.periodo_fin,
         comision_flete=calculo["comision_flete"],
         porcentaje_comision=calculo["porcentaje_comision"],
+        # COMPENSADO_RC: inputs manuales adicionales
+        salario_basico=data.salario_basico,
+        auxilio_transporte=data.auxilio_transporte,
+        papeleria=data.papeleria,
+        descuento_salud_pension=data.descuento_salud_pension,
+        # COMPENSADO_RC: calculados por el servidor
+        retiros_tarjeta_anticipos=consolidado["retiros_tarjeta_anticipos"],
+        viajes_nacionales=consolidado["viajes_nacionales"],
+        viajes_urbanos=consolidado["viajes_urbanos"],
+        total_viajes=consolidado["total_viajes"],
+        comisiones_total=consolidado["comisiones_total"],
         bonificaciones=data.bonificaciones,
         viaticos_reconocidos=data.viaticos_reconocidos,
         otros_haberes=data.otros_haberes,
