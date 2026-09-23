@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Numeric, Boolean, Date, ForeignKey, Text, DateTime, CheckConstraint, Computed, event
+from sqlalchemy import Column, Integer, String, Numeric, Boolean, Date, ForeignKey, Text, DateTime, CheckConstraint, Computed, event, Index
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func, text
 from datetime import datetime
@@ -23,6 +23,19 @@ class Proveedor(Base):
 
 class ViajeODT(Base):
     __tablename__ = "viajes_odt"
+    __table_args__ = (
+        CheckConstraint("tipo_viaje IN ('urbano', 'nacional', 'internacional', 'vacio')",
+                        name="ck_viajes_odt_tipo_viaje_valido"),
+        CheckConstraint("km_inicial IS NULL OR km_final IS NULL OR km_final >= km_inicial",
+                        name="ck_viajes_odt_km_coherentes"),
+        CheckConstraint("COALESCE(valor_flete_manifiesto,0) >= 0 AND COALESCE(retefuente_valor,0) >= 0 "
+                        "AND COALESCE(reteica_valor,0) >= 0 AND otras_deducciones >= 0 AND anticipo_manifiesto >= 0",
+                        name="ck_viajes_odt_valores_no_negativos"),
+        # Regla 2: manifiesto unico por empresa (NULLs y eliminados no colisionan)
+        Index("ux_viajes_odt_manifiesto_empresa", "empresa_manifiesto_id", "num_manifiesto",
+              unique=True,
+              postgresql_where=text("num_manifiesto IS NOT NULL AND eliminado_en IS NULL")),
+    )
     
     id = Column(Integer, primary_key=True, index=True)
     numero_odt = Column(String(30), unique=True, nullable=False)
@@ -43,7 +56,23 @@ class ViajeODT(Base):
     retefuente_valor = Column(Numeric(14,2))
     reteica_porcentaje = Column(Numeric(5,2))
     reteica_valor = Column(Numeric(14,2))
-    flete_neto = Column(Numeric(14,2), Computed("valor_flete_manifiesto - COALESCE(retefuente_valor, 0) - COALESCE(reteica_valor, 0)", persisted=True))
+
+    # FASE A2 — inputs manuales de la ODT (el resto de los campos, calculados)
+    tipo_viaje = Column(String(20), nullable=False, default='nacional', server_default='nacional')
+    fecha_manifiesto = Column(Date)
+    empresa_manifiesto_id = Column(Integer, ForeignKey("proveedores.id"))
+    otras_deducciones = Column(Numeric(14,2), nullable=False, default=0, server_default="0")
+    anticipo_manifiesto = Column(Numeric(14,2), nullable=False, default=0, server_default="0")
+    porcentaje_comision = Column(Numeric(5,2))
+    # FASE A2 — calculados por el servidor (app.services.operaciones): snapshot contable
+    comision_conductor = Column(Numeric(14,2))
+    saldo_flete_esperado = Column(Numeric(14,2))
+    gastos_totales_viaje = Column(Numeric(14,2))
+    utilidad_neta_odt = Column(Numeric(14,2))
+    # Anio de carga derivado de fecha_salida (columna generada STORED en DB)
+    anio = Column(Integer, Computed("(EXTRACT(year FROM fecha_salida))::integer", persisted=True))
+    flete_neto = Column(Numeric(14,2), Computed("valor_flete_manifiesto - COALESCE(retefuente_valor, 0) "
+                                                "- COALESCE(reteica_valor, 0) - COALESCE(otras_deducciones, 0)", persisted=True))
     fecha_salida = Column(Date, nullable=False, index=True)
     fecha_llegada = Column(Date)
     km_inicial = Column(Numeric(12,2))
@@ -74,6 +103,10 @@ class Gasto(Base):
     __tablename__ = "gastos"
     __table_args__ = (
         CheckConstraint("valor_total >= 0", name="ck_gastos_valor_total_no_negativo"),
+        CheckConstraint("metodo_pago IN ('efectivo', 'tarjeta', 'transferencia', 'tag')",
+                        name="ck_gastos_metodo_pago_valido"),
+        CheckConstraint("estado_pago IN ('pagado', 'pendiente_por_pagar', 'legalizado')",
+                        name="ck_gastos_estado_pago_valido"),
     )
     
     id = Column(Integer, primary_key=True, index=True)
@@ -95,6 +128,11 @@ class Gasto(Base):
     tarjeta_id = Column(Integer, ForeignKey("tarjetas_bancarias.id"))
     tiene_num_factura = Column(Boolean, nullable=False, default=False)
     hash_comprobante = Column(String(64), unique=True, nullable=False, index=True)
+
+    # FASE A2 — forma de pago y legalizacion del gasto
+    metodo_pago = Column(String(20), nullable=False, default='efectivo', server_default='efectivo')
+    estado_pago = Column(String(20), nullable=False, default='pagado', server_default='pagado')
+    legalizado = Column(Boolean, Computed("(estado_pago = 'legalizado')", persisted=True))
 
     url_imagen = Column(Text)
     datos_ocr_json = Column(JSONB)
