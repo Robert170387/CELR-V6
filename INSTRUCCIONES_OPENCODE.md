@@ -50,12 +50,18 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 - **Producción (Render):** cada entorno tiene su propia BD, así que `secuencias_documento`
   arranca en cero → los primeros ODT serán `ODT-2026-000001…`. **Es normal, no es un bug**;
   no comparar números ODT entre entornos.
-- **Deuda técnica detectada (2026-09-23):** en el arranque de la app salen
-  `PAGEERROR Failed to execute 'only' on IDBKeyRange` (2 veces, IndexedDB). No bloquea la app
-  (el error se atrapa), pero puede **romper silenciosamente la sincronización offline del PWA**:
-  algo pasa una key inválida (`undefined`/`NaN`/tipo incorrecto) en una consulta indexada de
-  `frontend/src/utils/offlineStore.ts`. Candidato a fase futura (investigación read-only
-  primero, ~15 min); sin urgencia.
+- **Deuda técnica IDBKeyRange — RESUELTA (2026-09-23, `172e38f`):** los `PAGEERROR
+  Failed to execute 'only' on IDBKeyRange` (2 veces en el arranque post-login) tenían causa
+  raíz confirmada empíricamente: **`boolean` no es una clave válida de índice en IndexedDB**
+  (lo son `number | Date | DOMString | binary | Array`). `offlineStore.ts` indexaba el campo
+  `synced` (booleano) y consultaba `IDBKeyRange.only(false/true)` → `DataError`, rompiendo
+  silenciosamente `getUnsyncedTransactions()` / `clearSyncedTransactions()` (la sync offline
+  del PWA fallaba siempre). Fix (**Opción B**, `getAll()` + `filter` en memoria): el índice
+  `'synced'` queda **declarado pero sin uso**, sin bump de `DB_VERSION` ni reindexación, y es
+  tolerante a registros antiguos con `synced` booleano. Verificado: `PAGEERROR` ausente en el
+  dist nuevo post-login (build + E2E `--purge` + baseline `viajes_odt=24` verdes).
+  Residuo opcional a futuro: borrar el índice `'synced'` del schema (no requiere migración si
+  se hace al crear store, pero tocaría `DB_VERSION`).
 
 ## 5. Estado actual
 
@@ -87,6 +93,10 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
   | Sub-fase | Commit | Qué cambió |
   |---|---|---|
   | Liquidaciones | `221ff2f` | `Liquidaciones.tsx`: conteos en 3 cards, desglose por línea de haberes/descuentos, DEVENGADO TOTAL / DEDUCCIONES TOTALES / NETO A PAGAR, inputs agrupados por sección; gates build+E2E `--purge` verdes |
+- **FASE Fix offline IDBKeyRange cerrada:**
+  | Sub-fase | Commit | Qué cambió |
+  |---|---|---|
+  | Fix cola offline | `172e38f` | `offlineStore.ts`: `getUnsyncedTransactions()`/`clearSyncedTransactions()` pasan de `index('synced').getAll(only(false/true))` (DataError: booleans no son claves IDB) a `getAll()` + `filter`/`delete` en memoria; índice `'synced'` declarado sin uso; gates build+E2E `--purge`+baseline+PAGEERROR ausente verdes |
 
 ## 6. Pendientes (GitHub / Render)
 
