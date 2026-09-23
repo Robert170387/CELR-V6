@@ -210,19 +210,48 @@ const Liquidaciones: React.FC = () => {
       ]
     : []
 
-  const camposMensuales: { name: string; label: string }[] = [
-    { name: 'bonificaciones', label: 'Bonificaciones' },
-    { name: 'viaticos_reconocidos', label: 'Viáticos reconocidos' },
-    { name: 'otros_haberes', label: 'Otros haberes' },
+  const camposHaberes: { name: string; label: string }[] = [
     { name: 'salario_basico', label: 'Salario básico' },
     { name: 'auxilio_transporte', label: 'Auxilio de transporte' },
     { name: 'papeleria', label: 'Papelería' },
+    { name: 'bonificaciones', label: 'Bonificaciones' },
+    { name: 'viaticos_reconocidos', label: 'Viáticos reconocidos' },
+    { name: 'otros_haberes', label: 'Otros haberes' },
+  ]
+
+  const camposDescuentos: { name: string; label: string }[] = [
     { name: 'anticipos_entregados', label: 'Anticipos entregados' },
     { name: 'gastos_a_cargo_conductor', label: 'Gastos a cargo del conductor' },
     { name: 'prestamos', label: 'Préstamos' },
     { name: 'otros_descuentos', label: 'Otros descuentos' },
     { name: 'descuento_salud_pension', label: 'Salud y pensión' },
   ]
+
+  const netoMensual = haberesMensuales - descuentosMensuales
+
+  // FASE Liquidaciones — desglose completo del COMPENSADO_RC mensual
+  const filasHaberes = consolidado
+    ? [
+        { label: 'Comisiones conductor (consolidado del mes)', valor: consolidado.comisiones_total, tono: 'text-green-400' },
+        { label: 'Salario básico', valor: inputsMensuales.salario_basico, tono: 'text-white' },
+        { label: 'Auxilio de transporte', valor: inputsMensuales.auxilio_transporte, tono: 'text-white' },
+        { label: 'Papelería', valor: inputsMensuales.papeleria, tono: 'text-white' },
+        { label: 'Bonificaciones', valor: inputsMensuales.bonificaciones, tono: 'text-white' },
+        { label: 'Viáticos reconocidos', valor: inputsMensuales.viaticos_reconocidos, tono: 'text-white' },
+        { label: 'Otros haberes', valor: inputsMensuales.otros_haberes, tono: 'text-white' },
+      ]
+    : []
+
+  const filasDescuentos = consolidado
+    ? [
+        { label: 'Retiros tarjeta / anticipos (consolidado del mes)', valor: consolidado.retiros_tarjeta_anticipos, tono: 'text-orange-400' },
+        { label: 'Descuento salud y pensión', valor: inputsMensuales.descuento_salud_pension, tono: 'text-orange-400' },
+        { label: 'Anticipos entregados', valor: inputsMensuales.anticipos_entregados, tono: 'text-orange-400' },
+        { label: 'Gastos a cargo del conductor', valor: inputsMensuales.gastos_a_cargo_conductor, tono: 'text-orange-400' },
+        { label: 'Préstamos', valor: inputsMensuales.prestamos, tono: 'text-orange-400' },
+        { label: 'Otros descuentos', valor: inputsMensuales.otros_descuentos, tono: 'text-orange-400' },
+      ]
+    : []
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -372,58 +401,104 @@ const Liquidaciones: React.FC = () => {
 
         {consolidado && (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4">
-              <div className="rounded-lg bg-slate-800/60 p-3">
-                <p className="text-xs text-slate-400">Viajes en el mes</p>
+            {/* Conteo de viajes del periodo */}
+            <div className="grid grid-cols-3 gap-3 mt-4">
+              <div className="rounded-lg bg-slate-800/60 p-3 text-center">
+                <p className="text-xs text-slate-400">Viajes nacionales</p>
+                <p className="text-xl font-bold text-white">{consolidado.viajes_nacionales}</p>
+              </div>
+              <div className="rounded-lg bg-slate-800/60 p-3 text-center">
+                <p className="text-xs text-slate-400">Viajes urbanos</p>
+                <p className="text-xl font-bold text-white">{consolidado.viajes_urbanos}</p>
+              </div>
+              <div className="rounded-lg bg-slate-800/60 p-3 text-center">
+                <p className="text-xs text-slate-400">Total viajes</p>
                 <p className="text-xl font-bold text-white">{consolidado.total_viajes}</p>
-                <p className="text-xs text-slate-500">
-                  {consolidado.viajes_nacionales} nac. · {consolidado.viajes_urbanos} urb.
-                </p>
-              </div>
-              <div className="rounded-lg bg-slate-800/60 p-3">
-                <p className="text-xs text-slate-400">Comisiones totales</p>
-                <p className="text-xl font-bold text-green-400">{formatearMoneda(consolidado.comisiones_total)}</p>
-              </div>
-              <div className="rounded-lg bg-slate-800/60 p-3">
-                <p className="text-xs text-slate-400">Retiros tarjeta (anticipos)</p>
-                <p className="text-xl font-bold text-orange-400">{formatearMoneda(consolidado.retiros_tarjeta_anticipos)}</p>
-              </div>
-              <div className="rounded-lg bg-slate-800/60 p-3">
-                <p className="text-xs text-slate-400">Haberes</p>
-                <p className="text-xl font-bold text-blue-400">{formatearMoneda(haberesMensuales)}</p>
-              </div>
-              <div className="rounded-lg bg-slate-800/60 p-3">
-                <p className="text-xs text-slate-400">Descuentos</p>
-                <p className="text-xl font-bold text-orange-400">{formatearMoneda(descuentosMensuales)}</p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
-              {camposMensuales.map((campo) => (
-                <div key={campo.name}>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">{campo.label}</label>
-                  <input
-                    type="number"
-                    name={campo.name}
-                    value={(inputsMensuales as Record<string, string>)[campo.name] ?? ''}
-                    onChange={handleInputMensual}
-                    className="input-truck"
-                    min="0"
-                    step="0.01"
-                  />
+            {/* Haberes / devengado */}
+            <div className="mt-4">
+              <p className="text-sm font-semibold text-white uppercase tracking-wide mb-2">Haberes (devengado del mes)</p>
+              <div className="rounded-lg bg-slate-800/40 p-3 divide-y divide-slate-700/50">
+                {filasHaberes.map((f) => (
+                  <div key={f.label} className="flex items-center justify-between py-1.5 text-sm">
+                    <span className="text-slate-400">{f.label}</span>
+                    <span className={f.tono}>{formatearMoneda(f.valor)}</span>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between py-2 pt-2 border-t border-slate-600">
+                  <span className="text-sm font-semibold text-white">DEVENGADO TOTAL</span>
+                  <span className="text-lg font-bold text-blue-400">{formatearMoneda(haberesMensuales)}</span>
                 </div>
-              ))}
+              </div>
             </div>
 
-            <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-600">
-              <span className="text-base font-semibold text-white">Saldo estimado del mes (vista previa)</span>
-              <span className={`text-2xl font-bold ${haberesMensuales - descuentosMensuales >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {formatearMoneda(haberesMensuales - descuentosMensuales)}
+            {/* Deducciones */}
+            <div className="mt-4">
+              <p className="text-sm font-semibold text-white uppercase tracking-wide mb-2">Deducciones del mes</p>
+              <div className="rounded-lg bg-slate-800/40 p-3 divide-y divide-slate-700/50">
+                {filasDescuentos.map((f) => (
+                  <div key={f.label} className="flex items-center justify-between py-1.5 text-sm">
+                    <span className="text-slate-400">{f.label}</span>
+                    <span className={f.tono}>{formatearMoneda(f.valor)}</span>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between py-2 pt-2 border-t border-slate-600">
+                  <span className="text-sm font-semibold text-white">DEDUCCIONES TOTALES</span>
+                  <span className="text-lg font-bold text-orange-400">{formatearMoneda(descuentosMensuales)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Inputs manuales agrupados por sección */}
+            <div className="mt-4">
+              <p className="text-sm font-semibold text-white uppercase tracking-wide mb-2">Ingresos manuales — haberes</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {camposHaberes.map((campo) => (
+                  <div key={campo.name}>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">{campo.label}</label>
+                    <input
+                      type="number"
+                      name={campo.name}
+                      value={(inputsMensuales as Record<string, string>)[campo.name] ?? ''}
+                      onChange={handleInputMensual}
+                      className="input-truck"
+                      min="0"
+                      step="0.01"
+                    />
+                  </div>
+                ))}
+              </div>
+              <p className="text-sm font-semibold text-white uppercase tracking-wide mb-2 mt-4">Descuentos manuales</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {camposDescuentos.map((campo) => (
+                  <div key={campo.name}>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">{campo.label}</label>
+                    <input
+                      type="number"
+                      name={campo.name}
+                      value={(inputsMensuales as Record<string, string>)[campo.name] ?? ''}
+                      onChange={handleInputMensual}
+                      className="input-truck"
+                      min="0"
+                      step="0.01"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Neto a pagar */}
+            <div className="flex items-center justify-between mt-5 pt-4 border-t border-slate-600">
+              <span className="text-base font-semibold text-white">NETO A PAGAR</span>
+              <span className={`text-2xl font-bold ${netoMensual >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {formatearMoneda(netoMensual)}
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-2">
-              Vista previa calculada con la fórmula del servidor (haberes − descuentos). Los valores definitivos los
-              deriva el backend al cerrar la liquidación de cada ODT del periodo.
+              Vista previa calculada con la misma fórmula del servidor (devengado − deducciones). Los valores
+              definitivos los deriva el backend al cerrar la liquidación de cada ODT del periodo.
             </p>
           </>
         )}
