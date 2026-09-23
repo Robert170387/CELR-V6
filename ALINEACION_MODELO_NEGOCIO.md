@@ -146,7 +146,7 @@ el wiring en el payload y (opcional) una columna de KMS en la tabla.
 | 1 — Migración + modelo | `1a11e18` | `f2e1d0c9b8a7_b2_cierre_mensual_compensado.py` (columna `es_cierre_mensual`, `periodo_ym` GENERATED STORED, `vehiculo_id` nullable, UNIQUE parcial) + modelo `LiquidacionConductor` |
 | 2 — Endpoints + tests | `61a56be` | `POST/GET /liquidaciones/cierre-mensual`, `POST /{id}/reabrir`, `POST /{id}/cancelar`; 409 en `/cerrar/{viaje_id}`; schemas `CierreMensualCreate/Response`; suite nueva `scripts/test_cierre_mensual.py` |
 | 3 — UI frontend | `2131127` | `Liquidaciones.tsx`: botón «Cerrar mes» + sección «Meses cerrados» (Detalle / Reabrir / Cancelar); `api/index.ts` (interfaz `CierreMensual` + métodos). ⚠️ Nota de alcance: además del frontend, este commit (etiquetado `feat(frontend)`) arrastra el backend read-only `GET /liquidaciones/cierres-mensuales` que alimenta el listado |
-| 4 — Docs | *(este commit)* | Esta sección + pipeline/nota `PYTHONIOENCODING` en `INSTRUCCIONES_OPENCODE.md` |
+| 4 — Docs | `8d72c3b` | Esta sección + pipeline/nota `PYTHONIOENCODING` en `INSTRUCCIONES_OPENCODE.md`. Posteriores ligados a B2: `f2e7591` (trazabilidad del listado) y `3f9a9d3` (tests de estados inválidos) |
 
 ### 5.3 Flujo del cierre mensual
 

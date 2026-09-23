@@ -105,7 +105,7 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
   | 1 migración+modelo | `1a11e18` | `f2e1d0c9b8a7_b2_cierre_mensual_compensado.py` (`es_cierre_mensual`, `periodo_ym` GENERATED STORED, `vehiculo_id` NULL, UNIQUE parcial) + modelo `LiquidacionConductor` |
   | 2 endpoints+tests | `61a56be` | `POST/GET /liquidaciones/cierre-mensual`, `POST /{id}/reabrir`, `POST /{id}/cancelar`, 409 en `/cerrar/{viaje_id}`; schemas `CierreMensualCreate/Response`; suite nueva `test_cierre_mensual.py` |
   | 3 UI frontend | `2131127` | `Liquidaciones.tsx`: «Cerrar mes» + «Meses cerrados» (Detalle/Reabrir/Cancelar); `api/index.ts` (`CierreMensual` + métodos). ⚠️ El commit (etiquetado `feat(frontend)`) arrastra el backend read-only `GET /cierres-mensuales` (soporte del listado) |
-  | 4 docs | *(este commit)* | Sección B2 en `ALINEACION_MODELO_NEGOCIO.md` §5 + pipeline/nota `PYTHONIOENCODING` aquí (§3) |
+  | 4 docs | `8d72c3b` | Sección B2 en `ALINEACION_MODELO_NEGOCIO.md` §5 + pipeline/nota `PYTHONIOENCODING` aquí (§3) |
 
 ## 6. Pendientes (GitHub / Render)
 
@@ -128,7 +128,8 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 ## 7. Decisiones registradas en FASE 2
 
 1. Suites backend con **limpieza propia** (2.B): DELETE real en orden inverso de FK; baseline
-   idéntico al inicio/fin de cada corrida; excluir siempre el seed.
+   idéntico al inicio/fin de cada corrida; excluir siempre el seed. Las suites también purgan
+   sus **propios `refresh_tokens` de login** (no forman parte del baseline: `refresh_tokens=0`).
 2. `secuencias_documento` **no se resetea** tras corridas de tests/E2E.
 3. `smoke.py` es el humo estándar post-migración (2.C), junto a suites + E2E + `npm run build`.
 4. Import de `offlineStore` unificado a **estático** (2.D): el módulo no es pesado y ya estaba
