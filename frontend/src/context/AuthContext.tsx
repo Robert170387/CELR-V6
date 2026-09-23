@@ -84,7 +84,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [])
 
   const cambiarContrasena = useCallback(async (contrasenaActual: string, nuevaContrasena: string) => {
-    await authAPI.cambioContrasena(contrasenaActual, nuevaContrasena)
+    const response = await authAPI.cambioContrasena(contrasenaActual, nuevaContrasena)
+    const { access_token, refresh_token } = response.data
+    localStorage.setItem(TOKEN_KEY, access_token)
+    if (refresh_token) {
+      localStorage.setItem(REFRESH_KEY, refresh_token)
+    }
+    setToken(access_token)
     const me = await apiClient.get('/auth/me')
     setUser(me.data)
   }, [])
