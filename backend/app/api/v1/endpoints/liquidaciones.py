@@ -3,6 +3,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
+from datetime import date
 from decimal import Decimal
 
 from app.api.v1.deps import get_current_user, RoleChecker
@@ -116,6 +117,23 @@ def calcular_liquidacion(
     if not viaje:
         raise HTTPException(status_code=404, detail="Viaje no encontrado")
     return LiquidacionCalculateResponse(**_calcular_servidor(db, viaje))
+
+
+@router.get("/liquidaciones/compensado")
+def obtener_compensado(
+    conductor_id: int,
+    periodo_inicio: date,
+    periodo_fin: date,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """COMPENSADO_RC mensual (solo lectura).
+
+    Consolidados automaticos del conductor en el periodo (conteo de viajes,
+    comisiones totales y retiros de tarjeta cruzados como anticipos). Los
+    inputs manuales los captura el usuario en la pantalla de liquidaciones.
+    """
+    return consolidar_compensado(db, conductor_id, periodo_inicio, periodo_fin)
 
 
 @router.post("/liquidaciones/cerrar/{viaje_id}")
