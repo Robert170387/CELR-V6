@@ -6,6 +6,11 @@ Valida el ciclo completo de negocio:
   3. Escaneo e inserción de gasto vía OCR (rechazo de duplicados)
   4. Consulta y cálculo de balance de liquidación
   5. Cierre definitivo de la ODT
+
+Uso: `python scripts/e2e_flow_test.py [--purge]`
+  --purge    al terminar, elimina los datos creados por la corrida (DELETE real
+             vía DATABASE_URL, orden inverso de FK — patrón de las suites 2.B).
+             Sin él, la corrida deja residuo en la BD (comportamiento histórico).
 """
 import sys
 import os
@@ -170,12 +175,48 @@ def test_05_close_viaje(headers, viaje_id, balance):
     viaje = r2.json()
     assert viaje['estado'] == 'liquidado', f"Estado esperado 'liquidado', obtenido: {viaje['estado']}"
     print(f"  ✓ Viaje confirmado como 'liquidado'")
+    return result["liquidacion_id"]
+
+
+def purge_creados(viaje_id, liquidacion_id=None):
+    """Elimina (DELETE real, orden inverso de FK) los datos creados por esta corrida E2E.
+
+    Requiere acceso directo a la BD vía DATABASE_URL (mismo patrón que las suites
+    backend 2.B). No se puede purgar por API: liquidaciones no expone DELETE.
+    """
+    from sqlalchemy import create_engine, text
+
+    url = os.getenv("DATABASE_URL", "postgresql://postgres:admin@localhost:5433/celr_v6_db")
+    engine = create_engine(url)
+    with engine.begin() as conn:
+        # N° ODT solo para el reporte (la fila se borra en el mismo commit)
+        row = conn.execute(text("SELECT numero_odt FROM viajes_odt WHERE id = :vid"), {"vid": viaje_id}).first()
+        numero_odt = row[0] if row else "?"
+
+        if liquidacion_id:
+            conn.execute(
+                text("DELETE FROM liquidaciones_conductores WHERE id = :lid"),
+                {"lid": liquidacion_id},
+            )
+        conn.execute(text("DELETE FROM gastos WHERE viaje_id = :vid"), {"vid": viaje_id})
+        conn.execute(text("DELETE FROM viajes_odt WHERE id = :vid"), {"vid": viaje_id})
+    print(f"  [--purge] Corrida limpiada: viaje {viaje_id} ({numero_odt}), "
+          f"liquidación {liquidacion_id}, gastos → OK")
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="E2E CELR v6 — ciclo completo de negocio")
+    parser.add_argument("--purge", action="store_true",
+                        help="al terminar, elimina los datos creados por la corrida (DELETE real, orden inverso de FK)")
+    args = parser.parse_args()
+
     print("\n" + "="*60)
     print("  CELR v6 - PRUEBA E2E FLOW COMPLETO")
     print("  Ciclo de negocio: Auth -> Viaje -> Gastos -> Liquidación -> Cierre")
+    if args.purge:
+        print("  Modo --purge activo: la corrida se limpia sola al final")
     print("="*60)
 
     try:
@@ -192,12 +233,16 @@ if __name__ == "__main__":
         balance = test_04_calculate_liquidacion(headers, viaje_id)
 
         # Paso 5: Cierre de ODT
-        test_05_close_viaje(headers, viaje_id, balance)
+        liquidacion_id = test_05_close_viaje(headers, viaje_id, balance)
 
         print("\n" + "="*60)
         print("  [✓] TODOS LOS TESTS E2E PASARON")
         print("  Ciclo completo validado: Auth → Viaje → Gastos → Liquidación → Cierre")
         print("="*60 + "\n")
+
+        # Limpieza opcional de los datos creados por esta corrida
+        if args.purge:
+            purge_creados(viaje_id, liquidacion_id)
 
     except requests.exceptions.ConnectionError:
         print("\n[ERROR] No se pudo conectar al backend. Verifica que el servidor esté corriendo en http://localhost:8000")
