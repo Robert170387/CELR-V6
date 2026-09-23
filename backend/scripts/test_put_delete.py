@@ -1,13 +1,13 @@
 import sys
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from fastapi.testclient import TestClient
 from app.main import app
 from app.db.session import SessionLocal
-from app.models.flota import Usuario as UsuarioModel, Vehiculo, Conductor
+from app.models.flota import Usuario as UsuarioModel, Vehiculo, Conductor, RefreshToken
 from app.models.operaciones import ViajeODT, Gasto, Proveedor
 from app.models.financiero import Ingreso
 from app.core.security import hash_password
@@ -43,6 +43,7 @@ def delete(url, headers, esperado=204):
 
 def main():
     suf = datetime.now().strftime("%H%M%S%f")
+    inicio = datetime.now(timezone.utc)
     print("Iniciando prueba CRUD PUT/DELETE CELR v6...")
 
     headers = login()
@@ -112,12 +113,11 @@ def main():
 
         # --- DELETE ---
         print("\n=== Test 6: DELETE ok (ingreso, gasto, viaje) ===")
+        # La API hace soft-delete (eliminado_en no nulo); los ids se conservan en
+        # `creados` para que el cleanup 2.B los borre físicamente al final (baseline).
         delete(f"/api/v1/ingresos/{ingreso['id']}", headers)
-        creados["ingreso"].remove(ingreso["id"])
         delete(f"/api/v1/gastos/{gasto['id']}", headers)
-        creados["gasto"].remove(gasto["id"])
         delete(f"/api/v1/viajes/{viaje['id']}", headers)
-        creados["viaje"].remove(viaje["id"])
         print("  [OK ] DELETE de ingreso, gasto y viaje")
 
         print("\n=== Test 7: DELETE rechazado por FK / inexistente ===")
@@ -154,19 +154,37 @@ def main():
         traceback.print_exc()
         raise SystemExit(1)
     finally:
-        # Limpieza ORM
+        # Limpieza 2.B: DELETE físico en orden inverso de FK.
+        # Las filas soft-eliminadas por la API (eliminado_en NOT NULL) también se
+        # borran, para que los COUNT(*) de las tablas vuelvan al baseline.
         try:
             for via_id in creados["viaje"]:
-                db.query(Gasto).filter(Gasto.viaje_id == via_id).delete()
+                db.query(Gasto).filter(Gasto.viaje_id == via_id).delete(synchronize_session=False)
             db.query(Ingreso).filter(Ingreso.viaje_id.in_(creados["viaje"])).delete(synchronize_session=False)
+            if creados["ingreso"]:
+                db.query(Ingreso).filter(Ingreso.id.in_(creados["ingreso"])).delete(synchronize_session=False)
+            if creados["gasto"]:
+                db.query(Gasto).filter(Gasto.id.in_(creados["gasto"])).delete(synchronize_session=False)
             db.query(ViajeODT).filter(ViajeODT.id.in_(creados["viaje"])).delete(synchronize_session=False)
-            db.query(Gasto).filter(Gasto.id.in_(creados["gasto"])).delete(synchronize_session=False)
-            db.query(Vehiculo).filter(Vehiculo.id.in_(creados["vehi"])).delete(synchronize_session=False)
-            db.query(Conductor).filter(Conductor.id.in_(creados["cond"])).delete(synchronize_session=False)
-            db.query(Proveedor).filter(Proveedor.id.in_(creados["prov"])).delete(synchronize_session=False)
+            # refresh_tokens primero (FK sin CASCADE) antes de borrar los usuarios
+            for correo_u in (f"cli-{suf}@celr.com", f"cond-{suf}@celr.com"):
+                u = db.query(UsuarioModel).filter(UsuarioModel.correo == correo_u).first()
+                if u:
+                    db.query(RefreshToken).filter(RefreshToken.usuario_id == u.id).delete(
+                        synchronize_session=False
+                    )
+            admin = db.query(UsuarioModel).filter(UsuarioModel.correo == "test@celr.com").first()
+            if admin:
+                db.query(RefreshToken).filter(
+                    RefreshToken.usuario_id == admin.id,
+                    RefreshToken.creado_en >= inicio,
+                ).delete(synchronize_session=False)
             db.query(UsuarioModel).filter(
-                UsuarioModel.correo.in_(f"cli-{suf}@celr.com", f"cond-{suf}@celr.com")
+                UsuarioModel.correo.in_([f"cli-{suf}@celr.com", f"cond-{suf}@celr.com"])
             ).delete(synchronize_session=False)
+            db.query(Conductor).filter(Conductor.id.in_(creados["cond"])).delete(synchronize_session=False)
+            db.query(Vehiculo).filter(Vehiculo.id.in_(creados["vehi"])).delete(synchronize_session=False)
+            db.query(Proveedor).filter(Proveedor.id.in_(creados["prov"])).delete(synchronize_session=False)
             db.commit()
         except Exception:
             db.rollback()

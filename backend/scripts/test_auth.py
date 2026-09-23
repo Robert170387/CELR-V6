@@ -1,13 +1,13 @@
 import sys
 import os
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from sqlalchemy.orm import Session
 from app.db.session import SessionLocal
-from app.models.flota import Vehiculo, Conductor, Usuario as UsuarioModel
+from app.models.flota import Vehiculo, Conductor, RefreshToken, Usuario as UsuarioModel
 from app.core.security import hash_password, verify_password, create_access_token, decode_access_token
 
 
@@ -259,6 +259,7 @@ def test_cambio_contrasena_y_rate_limit():
 def main():
     print("Iniciando prueba de autenticacion JWT CELR v6...")
     db = SessionLocal()
+    inicio = datetime.now(timezone.utc)
     try:
         usuario = seed_usuario(db)
         test_hash_password()
@@ -273,6 +274,25 @@ def main():
         import traceback
         traceback.print_exc()
     finally:
+        # Limpieza 2.B: DELETE real solo de lo creado por esta corrida.
+        # Orden inverso de FK: refresh_tokens antes que usuarios (FK sin CASCADE).
+        # Nunca se borra test@celr.com (usuario semilla del stack).
+        try:
+            rl = db.query(UsuarioModel).filter(UsuarioModel.correo == "ratelimit@celr.com").first()
+            if rl:
+                db.query(RefreshToken).filter(RefreshToken.usuario_id == rl.id).delete(
+                    synchronize_session=False
+                )
+                db.delete(rl)
+            admin = db.query(UsuarioModel).filter(UsuarioModel.correo == "test@celr.com").first()
+            if admin:
+                db.query(RefreshToken).filter(
+                    RefreshToken.usuario_id == admin.id,
+                    RefreshToken.creado_en >= inicio,
+                ).delete(synchronize_session=False)
+            db.commit()
+        except Exception:
+            db.rollback()
         db.close()
 
 

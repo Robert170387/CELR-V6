@@ -98,6 +98,7 @@ def test_listar_viajes(db: Session):
 def main():
     print("Iniciando prueba de endpoints CELR v6...")
     db = SessionLocal()
+    viaje = None
     try:
         veh_id, cond_id = seed(db)
         viaje = test_create_viaje(db, veh_id, cond_id)
@@ -110,6 +111,16 @@ def main():
         import traceback
         traceback.print_exc()
     finally:
+        # Limpieza 2.B: DELETE real del viaje y sus gastos creados por esta corrida.
+        # El vehículo/conductor (SKN756 / cédula 12345678) se reutilizan del seed,
+        # NO se borran.
+        try:
+            if viaje is not None:
+                db.query(Gasto).filter(Gasto.viaje_id == viaje.id).delete(synchronize_session=False)
+                db.query(ViajeODT).filter(ViajeODT.id == viaje.id).delete(synchronize_session=False)
+                db.commit()
+        except Exception:
+            db.rollback()
         db.close()
 
 

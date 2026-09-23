@@ -132,6 +132,9 @@ def main():
         print("\n[OK] TODOS LOS TESTS DE RBAC PASARON")
     finally:
         db.rollback()
+        # Limpieza 2.B: DELETE real del vehículo RB{SUF[-5:]} y de los usuarios rbac_*_SUF
+        # creados por esta corrida (idempotente; cubre corridas interrumpidas).
+        db.query(Vehiculo).filter(Vehiculo.placa == f"RB{SUF[-5:]}").delete(synchronize_session=False)
         db.query(UsuarioModel).filter(UsuarioModel.correo.like(f"rbac_%_{SUF}@celr.com")).delete(
             synchronize_session=False
         )

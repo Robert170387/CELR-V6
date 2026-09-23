@@ -1,13 +1,14 @@
 import sys
 import os
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from decimal import Decimal
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from app.db.session import SessionLocal
-from app.models.flota import Vehiculo, Conductor, Usuario as UsuarioModel
+from app.models.flota import Vehiculo, Conductor, RefreshToken, Usuario as UsuarioModel
 from app.models.operaciones import ViajeODT, Gasto
 from app.models.financiero import Ingreso, LiquidacionConductor
 from app.schemas.liquidacion import LiquidacionCreate
@@ -156,18 +157,23 @@ def test_cerrar_liquidacion(db: Session, viaje_id: int, cond_id: int, veh_id: in
 def main():
     print("Iniciando prueba de liquidaciones CELR v6...")
     db = SessionLocal()
+    inicio = datetime.now(timezone.utc)
+    viajes_creados = []
     try:
         admin = db.query(UsuarioModel).filter(UsuarioModel.correo == "test@celr.com").first()
         assert admin is not None, "Se requiere el usuario admin test@celr.com (ejecuta test_auth.py o seed.py)"
         admin2 = seed_admin2(db)
         veh_id, cond_id = seed(db)
         viaje = create_test_viaje(db, veh_id, cond_id)
+        viajes_creados.append(viaje)
         create_test_gastos(db, viaje.id, veh_id, cond_id)
         create_test_ingreso(db, viaje.id, veh_id)
         test_calcular_liquidacion(db, viaje.id)
         viaje2 = create_test_viaje_extra(db, veh_id, cond_id)
+        viajes_creados.append(viaje2)
         test_cerrar_comision_incorrecta(db, viaje2, cond_id, veh_id, admin)
         viaje3 = create_test_viaje_extra(db, veh_id, cond_id)
+        viajes_creados.append(viaje3)
         test_aprobar_liquidacion(db, viaje3, cond_id, veh_id, admin, admin2)
         test_cerrar_liquidacion(db, viaje.id, cond_id, veh_id, admin)
         print("\n[TODOS LOS TESTS DE LIQUIDACIONES PASARON]")
@@ -176,6 +182,44 @@ def main():
         import traceback
         traceback.print_exc()
     finally:
+        # Limpieza 2.B: DELETE real en orden inverso de FK, solo lo creado por esta
+        # corrida. Nunca borra el seed (test@celr.com, SKN756, conductor legacy 12345678).
+        try:
+            for v in viajes_creados:
+                db.query(LiquidacionConductor).filter(
+                    LiquidacionConductor.viajes_ids.contains([v.id])
+                ).delete(synchronize_session=False)
+            via_ids = [v.id for v in viajes_creados]
+            if via_ids:
+                db.query(Ingreso).filter(Ingreso.viaje_id.in_(via_ids)).delete(synchronize_session=False)
+                db.query(Gasto).filter(Gasto.viaje_id.in_(via_ids)).delete(synchronize_session=False)
+                db.query(ViajeODT).filter(ViajeODT.id.in_(via_ids)).delete(synchronize_session=False)
+            admin2 = db.query(UsuarioModel).filter(UsuarioModel.correo == "admin2@celr.com").first()
+            if admin2:
+                db.query(RefreshToken).filter(RefreshToken.usuario_id == admin2.id).delete(
+                    synchronize_session=False
+                )
+                # Liquidaciones de corridas antiguas/interrumpidas que referencian a
+                # admin2 (creado_por/aprobado_por) — sin esto el DELETE de admin2 rompe por FK.
+                db.query(LiquidacionConductor).filter(
+                    or_(
+                        LiquidacionConductor.creado_por == admin2.id,
+                        LiquidacionConductor.aprobado_por == admin2.id,
+                    )
+                ).delete(synchronize_session=False)
+                db.delete(admin2)
+            admin = db.query(UsuarioModel).filter(UsuarioModel.correo == "test@celr.com").first()
+            if admin:
+                db.query(RefreshToken).filter(
+                    RefreshToken.usuario_id == admin.id,
+                    RefreshToken.creado_en >= inicio,
+                ).delete(synchronize_session=False)
+            db.commit()
+        except Exception as e:
+            print(f"\n[CLEANUP ERROR]: {e}")
+            import traceback
+            traceback.print_exc()
+            db.rollback()
         db.close()
 
 

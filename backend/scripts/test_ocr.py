@@ -11,7 +11,7 @@ import os
 import sys
 import hashlib
 from decimal import Decimal
-from datetime import date
+from datetime import date, datetime, timezone
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -20,7 +20,12 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.db.session import SessionLocal
 from app.core.security import hash_password
-from app.models.flota import Vehiculo, Conductor, Usuario as UsuarioModel
+from app.models.flota import (
+    Vehiculo,
+    Conductor,
+    RefreshToken,
+    Usuario as UsuarioModel,
+)
 from app.models.operaciones import Gasto, ViajeODT
 from app.services import ocr_service
 from app.services.ocr_parser import (
@@ -316,15 +321,33 @@ def test_scan_receipt_manual_fallback():
 
 def main():
     print("Iniciando pruebas de OCR/visión CELR v6 (Tesseract + hash lógico)...")
-    test_parse_money()
-    test_parse_date()
-    test_extract_fields()
-    test_logical_hash()
-    test_degraded_ocr()
-    test_scan_receipt_security()
-    test_scan_receipt_duplicate_detection()
-    test_scan_receipt_manual_fallback()
-    print("\n[TODOS LOS TESTS DE OCR PASARON]")
+    db = SessionLocal()
+    inicio = datetime.now(timezone.utc)
+    try:
+        test_parse_money()
+        test_parse_date()
+        test_extract_fields()
+        test_logical_hash()
+        test_degraded_ocr()
+        test_scan_receipt_security()
+        test_scan_receipt_duplicate_detection()
+        test_scan_receipt_manual_fallback()
+        print("\n[TODOS LOS TESTS DE OCR PASARON]")
+    finally:
+        # Limpieza 2.B: refresh_tokens de test@celr.com creados por los logins de esta
+        # corrida (los viajes/gastos del OCR ya se limpian dentro de cada test).
+        # Nunca se borra test@celr.com ni el seed (SKN756 / cédula 12345678).
+        try:
+            admin = db.query(UsuarioModel).filter(UsuarioModel.correo == "test@celr.com").first()
+            if admin:
+                db.query(RefreshToken).filter(
+                    RefreshToken.usuario_id == admin.id,
+                    RefreshToken.creado_en >= inicio,
+                ).delete(synchronize_session=False)
+            db.commit()
+        except Exception:
+            db.rollback()
+        db.close()
 
 
 if __name__ == "__main__":
