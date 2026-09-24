@@ -139,6 +139,59 @@ export interface BloqueosCierre {
   bloqueos: string[]
 }
 
+export interface FlypassListItem {
+  id: number
+  fecha_transaccion: string
+  valor: string
+  num_transaccion_flypass: string
+  nombre_peaje: string | null
+  vehiculo_id: number
+  placa: string | null
+  viaje_id: number | null
+  gasto_id: number | null
+  legalizado_en_gastos: boolean
+}
+
+export interface FlypassListResponse {
+  data: FlypassListItem[]
+  total: number
+}
+
+export interface FlypassListParams {
+  fecha_desde?: string
+  fecha_hasta?: string
+  placa?: string
+  sin_odt?: boolean
+  sin_gasto?: boolean
+  skip?: number
+  limit?: number
+}
+
+export interface FlypassImportReporte {
+  insertados: number
+  duplicados: number
+  sin_placa: number
+  ambiguos: number
+  creados_gastos: number
+  matcheados_gastos: number
+  sin_odt: number
+  errores: Array<Record<string, unknown>>
+}
+
+export const flypassAPI = {
+  listar: (params: FlypassListParams = {}) =>
+    apiClient.get('/flypass', { params }).then((r) => r.data as FlypassListResponse),
+  importar: (file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return apiClient
+      .post('/flypass/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data as FlypassImportReporte)
+  },
+}
+
 export interface CompensadoMensual {
   conductor_id: number
   periodo_inicio: string

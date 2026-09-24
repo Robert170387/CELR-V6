@@ -17,6 +17,7 @@ import {
   Wifi,
   WifiOff,
   AlertTriangle,
+  FileSpreadsheet,
 } from 'lucide-react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
@@ -51,6 +52,7 @@ const grupoOperacion: MenuItem[] = [
 const grupoFinanzas: MenuItem[] = [
   { path: '/ingresos', label: 'Ingresos', icon: Wallet },
   { path: '/liquidaciones', label: 'Liquidaciones', icon: Calculator },
+  { path: '/flypass', label: 'Flypass', icon: FileSpreadsheet },
 ]
 
 const grupoRecursos: MenuItem[] = [

@@ -8,6 +8,7 @@ const ROLES_RECURSOS = ['admin', 'operador', 'supervisor'] as const
 const ACCESO_POR_MODULO: Record<string, readonly string[]> = {
   '/scan': ['admin', 'operador', 'supervisor'],
   '/liquidaciones': ROLES_FINANZAS,
+  '/flypass': ROLES_FINANZAS,
   '/ingresos': ROLES_FINANZAS,
   '/maestras': ROLES_RECURSOS,
 }
