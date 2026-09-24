@@ -1,5 +1,6 @@
 import sys
 import os
+import uuid
 from datetime import datetime, date, timezone
 from decimal import Decimal
 
@@ -10,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.db.session import SessionLocal
 from app.models.flota import Vehiculo, Conductor, RefreshToken, Usuario as UsuarioModel
 from app.models.operaciones import ViajeODT, Gasto
-from app.models.financiero import Ingreso, LiquidacionConductor
+from app.models.financiero import FlypassTransaccion, Ingreso, LiquidacionConductor
 from app.schemas.liquidacion import LiquidacionCreate
 from app.services.operaciones import recalcular_viaje
 
@@ -99,6 +100,230 @@ def create_test_ingreso(db: Session, viaje_id: int, veh_id: int):
     return ing
 
 
+def crear_peaje_legalizado(db: Session, viaje: ViajeODT) -> Gasto:
+    """Crea un gasto peaje que legaliza la transacción Flypass."""
+    gasto = Gasto(
+        viaje_id=viaje.id,
+        vehiculo_id=viaje.vehiculo_id,
+        categoria="peaje",
+        fecha_gasto=viaje.fecha_salida,
+        valor_total=Decimal("50000.00"),
+        responsable_pago="empresa",
+        asumido_por="empresa",
+        metodo_pago="tarjeta",
+        estado_pago="legalizado",
+        hash_comprobante=f"hash-flypass-legal-{uuid.uuid4().hex}",
+    )
+    db.add(gasto)
+    db.flush()
+    recalcular_viaje(db, viaje)
+    db.commit()
+    db.refresh(gasto)
+    return gasto
+
+
+def crear_flypass(
+    db: Session,
+    viaje: ViajeODT,
+    gasto_id: int | None = None,
+) -> FlypassTransaccion:
+    """Crea una transacción Flypass de prueba, pendiente si no tiene gasto."""
+    transaccion = FlypassTransaccion(
+        vehiculo_id=viaje.vehiculo_id,
+        fecha_transaccion=datetime(
+            viaje.fecha_salida.year,
+            viaje.fecha_salida.month,
+            viaje.fecha_salida.day,
+            tzinfo=timezone.utc,
+        ),
+        nombre_peaje="Peaje de prueba",
+        ciudad_peaje="Bogota",
+        valor=Decimal("50000.00"),
+        num_transaccion_flypass=f"TEST-FLYPASS-{uuid.uuid4().hex}",
+        viaje_id=viaje.id,
+        gasto_id=gasto_id,
+    )
+    db.add(transaccion)
+    db.commit()
+    db.refresh(transaccion)
+    return transaccion
+
+
+def payload_cierre_individual(
+    viaje_id: int,
+    conductor_id: int,
+    vehiculo_id: int,
+    periodo_inicio: str,
+    periodo_fin: str,
+) -> dict:
+    return {
+        "conductor_id": conductor_id,
+        "vehiculo_id": vehiculo_id,
+        "periodo_inicio": periodo_inicio,
+        "periodo_fin": periodo_fin,
+        "comision_flete": 85000,
+        "porcentaje_comision": 10,
+        "anticipos_entregados": 0,
+        "gastos_a_cargo_conductor": 0,
+        "viajes_ids": [viaje_id],
+        "estado": "borrador",
+    }
+
+
+def payload_cierre_mensual(conductor_id: int, periodo_ym: str) -> dict:
+    return {
+        "conductor_id": conductor_id,
+        "periodo_ym": periodo_ym,
+        "salario_basico": 0,
+        "auxilio_transporte": 0,
+        "papeleria": 0,
+        "descuento_salud_pension": 0,
+        "bonificaciones": 0,
+        "viaticos_reconocidos": 0,
+        "otros_haberes": 0,
+        "anticipos_entregados": 0,
+        "gastos_a_cargo_conductor": 0,
+        "prestamos": 0,
+        "otros_descuentos": 0,
+    }
+
+
+def cliente_autenticado():
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    client = TestClient(app)
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"correo": "test@celr.com", "contrasena": "admin123"},
+    )
+    assert login.status_code == 200, f"Login falló: {login.status_code} {login.text}"
+    return client, {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+
+def test_flypass_bloquea_cierre_individual(
+    db: Session,
+    viaje: ViajeODT,
+    flypass_creados: list,
+    client,
+    headers: dict,
+) -> None:
+    print("\n=== T1: ODT con Flypass pendiente -> 409 ===")
+    flypass = crear_flypass(db, viaje)
+    flypass_creados.append(flypass)
+    response = client.post(
+        f"/api/v1/liquidaciones/cerrar/{viaje.id}",
+        json=payload_cierre_individual(
+            viaje.id, viaje.conductor_id, viaje.vehiculo_id, "2026-10-01", "2026-10-31"
+        ),
+        headers=headers,
+    )
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail["cercable"] is False
+    assert any(
+        "Flypass" in mensaje
+        for item in detail["bloqueos"]
+        for mensaje in item["bloqueos"]
+    )
+    db.refresh(viaje)
+    assert viaje.estado == "en_curso"
+    assert not db.query(LiquidacionConductor).filter(
+        LiquidacionConductor.viajes_ids.contains([viaje.id])
+    ).first()
+    print("  409 con bloqueo Flypass y ODT sin mutaciones: OK")
+
+
+def test_flypass_legalizado_cierra_individual(
+    db: Session,
+    viaje: ViajeODT,
+    flypass_creados: list,
+    client,
+    headers: dict,
+) -> None:
+    print("\n=== T2: ODT con Flypass legalizado -> cierre normal ===")
+    gasto = crear_peaje_legalizado(db, viaje)
+    flypass = crear_flypass(db, viaje, gasto_id=gasto.id)
+    flypass_creados.append(flypass)
+    response = client.post(
+        f"/api/v1/liquidaciones/cerrar/{viaje.id}",
+        json=payload_cierre_individual(
+            viaje.id, viaje.conductor_id, viaje.vehiculo_id, "2026-10-01", "2026-10-31"
+        ),
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    print("  cierre con Flypass legalizado: OK")
+
+
+def test_sin_flypass_cierra_individual(
+    db: Session,
+    viaje: ViajeODT,
+    client,
+    headers: dict,
+) -> None:
+    print("\n=== T3: ODT sin Flypass -> cierre normal ===")
+    response = client.post(
+        f"/api/v1/liquidaciones/cerrar/{viaje.id}",
+        json=payload_cierre_individual(
+            viaje.id, viaje.conductor_id, viaje.vehiculo_id, "2026-10-01", "2026-10-31"
+        ),
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    print("  cierre sin Flypass: OK")
+
+
+def test_cierre_mensual_bloqueado_por_flypass(
+    db: Session,
+    viaje: ViajeODT,
+    flypass_creados: list,
+    client,
+    headers: dict,
+) -> None:
+    print("\n=== T4: cierre mensual con ODT bloqueada -> 409 ===")
+    flypass = crear_flypass(db, viaje)
+    flypass_creados.append(flypass)
+    response = client.post(
+        "/api/v1/liquidaciones/cierre-mensual",
+        json=payload_cierre_mensual(viaje.conductor_id, "2026-11"),
+        headers=headers,
+    )
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail["cercable"] is False
+    assert any(
+        "Flypass" in mensaje
+        for item in detail["bloqueos"]
+        for mensaje in item["bloqueos"]
+    )
+    db.refresh(viaje)
+    assert viaje.estado == "en_curso"
+    assert not db.query(LiquidacionConductor).filter(
+        LiquidacionConductor.es_cierre_mensual.is_(True),
+        LiquidacionConductor.periodo_ym == "2026-11",
+        LiquidacionConductor.eliminado_en.is_(None),
+    ).first()
+    print("  409 mensual y ninguna ODT marcada: OK")
+
+
+def test_cierre_mensual_limpio(
+    db: Session,
+    viaje: ViajeODT,
+    client,
+    headers: dict,
+) -> None:
+    print("\n=== T5: cierre mensual limpio -> normal ===")
+    response = client.post(
+        "/api/v1/liquidaciones/cierre-mensual",
+        json=payload_cierre_mensual(viaje.conductor_id, "2026-12"),
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    print("  cierre mensual limpio: OK")
+
+
+
 def test_calcular_liquidacion(db: Session, viaje_id: int):
     print("\n=== Test 1: GET /api/v1/liquidaciones/calcular/{viaje_id} ===")
     from app.api.v1.endpoints.liquidaciones import calcular_liquidacion
@@ -159,6 +384,7 @@ def main():
     db = SessionLocal()
     inicio = datetime.now(timezone.utc)
     viajes_creados = []
+    flypass_creados = []
     try:
         admin = db.query(UsuarioModel).filter(UsuarioModel.correo == "test@celr.com").first()
         assert admin is not None, "Se requiere el usuario admin test@celr.com (ejecuta test_auth.py o seed.py)"
@@ -176,6 +402,33 @@ def main():
         viajes_creados.append(viaje3)
         test_aprobar_liquidacion(db, viaje3, cond_id, veh_id, admin, admin2)
         test_cerrar_liquidacion(db, viaje.id, cond_id, veh_id, admin)
+
+        client, headers = cliente_autenticado()
+        viaje_t1 = create_test_viaje_extra(db, veh_id, cond_id, date(2026, 10, 5))
+        viajes_creados.append(viaje_t1)
+        test_flypass_bloquea_cierre_individual(
+            db, viaje_t1, flypass_creados, client, headers
+        )
+
+        viaje_t2 = create_test_viaje_extra(db, veh_id, cond_id, date(2026, 10, 10))
+        viajes_creados.append(viaje_t2)
+        test_flypass_legalizado_cierra_individual(
+            db, viaje_t2, flypass_creados, client, headers
+        )
+
+        viaje_t3 = create_test_viaje_extra(db, veh_id, cond_id, date(2026, 10, 15))
+        viajes_creados.append(viaje_t3)
+        test_sin_flypass_cierra_individual(db, viaje_t3, client, headers)
+
+        viaje_t4 = create_test_viaje_extra(db, veh_id, cond_id, date(2026, 11, 5))
+        viajes_creados.append(viaje_t4)
+        test_cierre_mensual_bloqueado_por_flypass(
+            db, viaje_t4, flypass_creados, client, headers
+        )
+
+        viaje_t5 = create_test_viaje_extra(db, veh_id, cond_id, date(2026, 12, 5))
+        viajes_creados.append(viaje_t5)
+        test_cierre_mensual_limpio(db, viaje_t5, client, headers)
         print("\n[TODOS LOS TESTS DE LIQUIDACIONES PASARON]")
     except Exception as e:
         print(f"\n[ERROR EN TESTS]: {e}")
@@ -190,6 +443,10 @@ def main():
                     LiquidacionConductor.viajes_ids.contains([v.id])
                 ).delete(synchronize_session=False)
             via_ids = [v.id for v in viajes_creados]
+            if flypass_creados:
+                db.query(FlypassTransaccion).filter(
+                    FlypassTransaccion.id.in_([f.id for f in flypass_creados])
+                ).delete(synchronize_session=False)
             if via_ids:
                 db.query(Ingreso).filter(Ingreso.viaje_id.in_(via_ids)).delete(synchronize_session=False)
                 db.query(Gasto).filter(Gasto.viaje_id.in_(via_ids)).delete(synchronize_session=False)
@@ -240,14 +497,18 @@ def seed_admin2(db: Session) -> UsuarioModel:
     return u
 
 
-def create_test_viaje_extra(db: Session, veh_id: int, cond_id: int) -> ViajeODT:
-    from datetime import date
+def create_test_viaje_extra(
+    db: Session,
+    veh_id: int,
+    cond_id: int,
+    fecha_salida: date = date(2026, 9, 17),
+) -> ViajeODT:
     viaje = ViajeODT(
         vehiculo_id=veh_id,
         conductor_id=cond_id,
         origen="Bogota",
         destino="Cali",
-        fecha_salida=date(2026, 9, 17),
+        fecha_salida=fecha_salida,
         valor_flete_manifiesto=Decimal("1000000.00"),
         retefuente_porcentaje=Decimal("10.00"),
         reteica_porcentaje=Decimal("5.00"),

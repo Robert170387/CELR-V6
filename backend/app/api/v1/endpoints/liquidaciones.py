@@ -20,7 +20,7 @@ from app.schemas.liquidacion import (
     CierreMensualCreate,
     CierreMensualResponse,
 )
-from app.services.operaciones import consolidar_compensado
+from app.services.operaciones import bloqueos_cierre_odt, consolidar_compensado
 
 router = APIRouter(dependencies=[Depends(RoleChecker(ROLES_LIQUIDACIONES))])
 
@@ -107,6 +107,27 @@ def _calcular_servidor(db: Session, viaje: ViajeODT) -> dict:
         "comision_flete": comision_flete,
         "saldo_neto": saldo_neto,
     }
+
+
+def _detalle_bloqueos_cierre(db, viajes: list[ViajeODT]) -> dict:
+    """Arma el 409 cuando la regla 4 tiene peajes Flypass pendientes.
+
+    ``bloqueos_cierre_odt`` también devuelve el saldo sin cubrir. Este fix
+    hace obligatorio solo el componente Flypass; el saldo conserva el
+    comportamiento previo y sigue disponible mediante el GET de bloqueos.
+    """
+    bloqueos = []
+    for viaje in viajes:
+        mensajes = bloqueos_cierre_odt(db, viaje)
+        if any("Flypass" in mensaje for mensaje in mensajes):
+            bloqueos.append(
+                {
+                    "viaje_id": viaje.id,
+                    "numero_odt": viaje.numero_odt,
+                    "bloqueos": mensajes,
+                }
+            )
+    return {"cercable": not bloqueos, "bloqueos": bloqueos}
 
 
 @router.get("/liquidaciones/calcular/{viaje_id}", response_model=LiquidacionCalculateResponse)
@@ -206,6 +227,10 @@ def cerrar_liquidacion(
     for v in viajes_a_liquidar:
         if v.estado == "liquidado":
             raise HTTPException(status_code=400, detail="Uno de los viajes ya está liquidado")
+
+    detalle_bloqueos = _detalle_bloqueos_cierre(db, viajes_a_liquidar)
+    if not detalle_bloqueos["cercable"]:
+        raise HTTPException(status_code=409, detail=detalle_bloqueos)
 
     # Quien crea no puede auto-aprobarse al cierre.
     if data.aprobado_por is not None and data.aprobado_por == current_user.id:
@@ -379,6 +404,19 @@ def crear_cierre_mensual(
     # 3) Consolidado del mes (fuente de verdad server-side).
     consolidado = consolidar_compensado(db, data.conductor_id, periodo_inicio, periodo_fin)
     viajes_ids = consolidado["odts_incluidas"]
+    viajes_periodo = (
+        db.query(ViajeODT)
+        .filter(
+            ViajeODT.id.in_(viajes_ids),
+            ViajeODT.eliminado_en.is_(None),
+        )
+        .all()
+        if viajes_ids
+        else []
+    )
+    detalle_bloqueos = _detalle_bloqueos_cierre(db, viajes_periodo)
+    if not detalle_bloqueos["cercable"]:
+        raise HTTPException(status_code=409, detail=detalle_bloqueos)
 
     # 4) Liquidación mensual. La comisión del mes se calcula y se persiste como
     #    comision_flete (sumando único de total_haberes) para que las columnas
