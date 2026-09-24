@@ -1,12 +1,22 @@
 """Verificación read-only de la idempotencia del seed base.
 
-El script toma un fingerprint de la BD, ejecuta ``seed_base`` dos veces y
-comprueba que:
+El script toma un fingerprint de la BD, ejecuta ``seed_base`` dos veces (N=2)
+y comprueba que:
 
 - la segunda ejecución no cambia el estado de la primera;
 - no se modifican registros operativos existentes;
 - el baseline local siga siendo el esperado;
 - ``km_actual`` de SKN756 y ``refresh_tokens`` conserven el estado esperado.
+
+N=2 es suficiente bajo el contrato actual: la idempotencia operativa se
+define como ``estado_post-N == estado_post-(N+1)``. El seed base no tiene
+fuentes de no-determinismo (no usa ``now()``, aleatoriedad ni orden no
+estable), por lo que una tercera ejecución es informativamente equivalente
+a la segunda bajo ese contrato.
+
+Trigger de N=3: si en el futuro ``seed_base.py`` incorpora cualquier
+operación no determinista, el verificador debe subir a N=3 y comparar
+``estado_post-2 == estado_post-3``.
 
 No imprime hashes de contraseñas ni tokens: solo guarda sus digest SHA-256
 en memoria para compararlos.
