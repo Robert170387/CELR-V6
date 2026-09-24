@@ -23,8 +23,8 @@ DB URL everywhere: `postgresql://postgres:admin@localhost:5433/celr_v6_db` (Wind
 ```
 python -m alembic upgrade head      # migrations
 python -m alembic revision --autogenerate -m "desc"
-python seed.py                      # idempotent: admin/test users, vehículo, conductor, proveedor
-python scripts/seed_municipios.py   # idempotent DIVIPOLA catalog — REQUIRED on fresh DBs
+python seed.py                      # wrapper seguro: base siempre; demo requiere CELR_ALLOW_DEMO_SEED=1
+python scripts/seed_municipios.py   # wrapper compatible del catálogo DIVIPOLA — REQUIRED on fresh DBs
 ```
 
 - **Alembic is the official schema mechanism.** `init_db.py`, `schema_celr_v6.sql`, and `backend/scripts/migrate_*.py` are deprecated/historical — do not use them on new DBs. Baseline migration `a5b6b344c873` is `create_all` from models (no-op on existing DBs); real schema changes go in new migrations.
@@ -49,6 +49,12 @@ No pytest. Two suites, both against the real DB/server — they leave test data 
 - `scripts/e2e_flow_test.py` — against a **running server**; set `CELR_BASE_URL` (default `http://localhost:8000`; use `http://localhost:8001` for the Docker backend).
 
 Credentials: `test@celr.com` / `admin123` (admin), `cliente@celr.com` / `cliente123` (cliente). Seed admin starts with `debe_cambiar_contrasena=True` (first login is forced through `/cambiar-contrasena`).
+
+## Gates operativos
+
+Los comandos, variables de entorno y gates exactos están centralizados en
+`INSTRUCCIONES_OPENCODE.md §3`; no duplicarlos aquí. En Windows, usar `npm.cmd` cuando
+PowerShell bloquee `npm` por ExecutionPolicy.
 
 ## Auth, RBAC, offline
 

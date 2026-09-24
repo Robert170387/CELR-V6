@@ -190,6 +190,13 @@ el wiring en el payload y (opcional) una columna de KMS en la tabla.
 > (sub-fases 1–3: `1a11e18`, `61a56be` y `2131127`; docs en este commit). Full-stack + migración; gates
 > verdes por sub-fase y baseline `24/6/0` intacto.
 
+> ✅ **Cerrada (2026-09-23):** **Seeds — partición base/demo** — commits `7a1a384`, `d74fac5`,
+> `5e86fda`, `4c117a9` y `ee86d05`. `seed_base.py` es seguro y siempre presente;
+> `seed_demo.py` es opt-in local con guard de producción; `seed.py` es wrapper; Docker local
+> habilita la demo mediante `CELR_ALLOW_DEMO_SEED=1`. El rebuild explícito de la imagen es
+> obligatorio cuando cambian seeds, migraciones o Dockerfile. Gates de build, startup, health,
+> B2, E2E 5/5 y baseline quedaron verdes.
+
 **Fases candidatas restantes:**
 | Fase candidata | Qué implica | Costo |
 |---|---|---|

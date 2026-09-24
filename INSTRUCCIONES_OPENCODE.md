@@ -43,8 +43,24 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
   `docker compose build frontend && docker compose up -d frontend`. Para desarrollo con HMR usar
   `npm run dev` (Vite `:3000`, proxy `/api` → `:8000`). Verificado 2026-09-23 (el preview en `:5174`
   servía un build viejo hasta reconstruir).
+- **Trampa — rebuild Docker:** `docker compose up -d --force-recreate backend` recrea el contenedor,
+  pero **no reconstruye la imagen**. Cuando cambien migraciones, seeds o `Dockerfile`, ejecutar primero:
+  `docker compose build backend` y después `docker compose up -d --force-recreate backend`.
+  Síntoma de una imagen stale: el contenedor entra en restart loop y los logs muestran
+  `Can't locate revision identified by '...'` durante Alembic.
 - Migraciones: **Alembic es el mecanismo oficial** (`alembic upgrade head`). `init_db.py`,
   `schema_celr_v6.sql` y `backend/scripts/migrate_*.py`: históricos, NO usarlos en BD nuevas.
+
+### Partición de seeds
+
+- `seed_base.py` es el entrypoint seguro y siempre presente: sincroniza el catálogo DIVIPOLA y
+  puede crear un admin inicial mediante variables de entorno, sin modificar cuentas existentes.
+- `seed_demo.py` contiene únicamente fixtures locales. Requiere `CELR_ALLOW_DEMO_SEED=1` y
+  rechaza `ENVIRONMENT=production`.
+- `seed.py` es un wrapper seguro: ejecuta base siempre y demo solo con el opt-in local.
+- `--reset` no está implementado; queda para una fase posterior con guardas y OK propio.
+- En producción se debe ejecutar `seed_base.py`; nunca habilitar la seed demo.
+
 - Baseline estable (verificado): `usuarios=7, vehiculos=9, conductores=7, proveedores=6,
   viajes_odt=24, gastos=37, ingresos=8, liquidaciones_conductores=6, refresh_tokens=0`;
   `km_actual` SKN756 = `125000.00`; max ODT `ODT-2026-000030`.
@@ -107,6 +123,15 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
   | 3 UI frontend | `2131127` | `Liquidaciones.tsx`: «Cerrar mes» + «Meses cerrados» (Detalle/Reabrir/Cancelar); `api/index.ts` (`CierreMensual` + métodos). ⚠️ El commit (etiquetado `feat(frontend)`) arrastra el backend read-only `GET /cierres-mensuales` (soporte del listado) |
   | 4 docs | `8d72c3b` | Sección B2 en `ALINEACION_MODELO_NEGOCIO.md` §5 + pipeline/nota `PYTHONIOENCODING` aquí (§3) |
 
+- **FASE Seeds (partición segura) cerrada (2026-09-23):**
+  | Sub-fase | Commit | Qué cambió |
+  |---|---|---|
+  | 1 | `7a1a384` | `seed_base.py`, wrapper municipal compatible y `verify_seed.py`; bootstrap create-only |
+  | 1b | `d74fac5` | documentación de la decisión N=2 y trigger N=3 |
+  | 2 | `5e86fda` | `seed_demo.py`, wrapper seguro de `seed.py` y verificador base+demo |
+  | 3 | `4c117a9` | `docker-compose.yml` habilita demo local mediante `CELR_ALLOW_DEMO_SEED=1` |
+  | 3b | `ee86d05` | cleanup automático de refresh tokens en B2 y E2E |
+
 ## 6. Pendientes (GitHub / Render)
 
 1. **Hecho:** todo `main` local está respaldado en `origin/fase-a2-fase-2-local` (conteo vivo:
@@ -116,7 +141,8 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
    `git push origin main` con **PAT del usuario** (Credential Manager, Opción A).
 2. **Actualizar los deploys de Render** a FASE A2 (backend + frontend estático con
    `VITE_API_URL=https://celr-backend.onrender.com/api/v1`). Orden de boot en Render:
-   `alembic upgrade head && seed.py && scripts/seed_municipios.py`. No hacer sin credenciales.
+   `alembic upgrade head && python seed_base.py && python scripts/seed_municipios.py`.
+   En producción no ejecutar `seed.py`, porque rechaza la demo; no hacer este paso sin credenciales.
 3. **Decidir el usuario `cliente@celr.com`:** no existe en la BD y `seed.py` no lo crea. Si el
    negocio lo requiere, registrar rol `cliente` o extender el seed (con autorización).
 4. ~~COMPENSADO_RC mensual: GET solo lectura, sin persistir~~ → **HECHO (FASE B2, 2026-09-23):**
@@ -125,7 +151,7 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
    bloqueo 409. Ver `ALINEACION_MODELO_NEGOCIO.md` §5.
 5. **Residuo 2.E:** los 6 usuarios históricos pueden borrarse si el negocio lo pide (con OK).
 
-## 7. Decisiones registradas en FASE 2
+## 7. Decisiones registradas
 
 1. Suites backend con **limpieza propia** (2.B): DELETE real en orden inverso de FK; baseline
    idéntico al inicio/fin de cada corrida; excluir siempre el seed. Las suites también purgan
@@ -136,6 +162,10 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
    en el bundle inicial vía Layout/Viajes/Gastos/useOfflineSync.
 5. **2.E cancelada** (decisión de FASE 2): los 6 usuarios residuo quedan documentados, no se
    borran sin nuevo OK.
+6. **Verificación de seeds — N=2:** la idempotencia operativa se define como
+   `estado_post-N == estado_post-(N+1)`. El contrato actual no tiene no-determinismo; si un seed
+   incorpora `now()`, aleatoriedad u orden no estable, el verificador debe subir a N=3 y comparar
+   `estado_post-2 == estado_post-3`.
 
 ## 8. Decisiones B1–B5 — preguntas al próximo consultor/agente
 

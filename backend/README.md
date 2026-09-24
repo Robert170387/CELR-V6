@@ -39,8 +39,30 @@ python -m alembic revision --autogenerate -m "desc"  # desde modelos (comparando
 > esquema, no un mecanismo de migración.
 
 ## Seed
-```
-python seed.py    # idempotente: crea admin/test si no existen
+
+La ejecución está particionada:
+
+- `python seed_base.py` sincroniza el catálogo DIVIPOLA y puede crear un admin inicial
+  create-only mediante `CELR_BOOTSTRAP_ADMIN_EMAIL` y `CELR_BOOTSTRAP_ADMIN_PASSWORD`.
+  Nunca modifica cuentas existentes.
+- `python seed.py` es un wrapper seguro: ejecuta siempre `seed_base.py` y ejecuta
+  `seed_demo.py` solo con opt-in local:
+  ```powershell
+  $env:CELR_ALLOW_DEMO_SEED="1"
+  python seed.py
+  ```
+- `seed_demo.py` es únicamente local. Rechaza `ENVIRONMENT=production` y exige
+  `CELR_ALLOW_DEMO_SEED=1`; no tiene `--reset` en esta fase.
+- En producción se debe ejecutar directamente `python seed_base.py`; nunca habilitar la demo.
+
+### Docker
+
+`docker compose up -d --force-recreate backend` no reconstruye la imagen. Después de cambiar
+migraciones, seeds o `Dockerfile`, ejecutar primero:
+
+```powershell
+docker compose build backend
+docker compose up -d --force-recreate backend
 ```
 
 ## Ejecutar el servidor
