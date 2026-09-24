@@ -81,6 +81,14 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
   Residuo opcional a futuro: borrar el índice `'synced'` del schema (no requiere migración si
   se hace al crear store, pero tocaría `DB_VERSION`).
 
+- **Regla 4 — componente saldo no forzado (B6, 2026-09-23).** `bloqueos_cierre_odt`
+  devuelve dos bloqueos: Flypass pendiente y saldo no cubierto. Solo el Flypass se fuerza
+  en `POST /liquidaciones/cerrar/{viaje_id}` y `POST /liquidaciones/cierre-mensual`
+  desde `9e07857`. Forzar el saldo hoy rompería la operación: 15/18 ODTs activas
+  quedarían bloqueadas, incluidas 9 ya `liquidado`. La ambigüedad semántica entre
+  “Finalizada” del brief y `liquidado` queda pendiente de decisión de negocio; ver B6 en
+  `ALINEACION_MODELO_NEGOCIO.md` §6.
+
 ## 5. Estado actual
 
 - Rama `main` y backup: **conteo vivo** con `git rev-list --count origin/main..HEAD` (fases mezcladas: FASE A2 + FASE 2 + docs 2.G + alineación ODT + FASE Gastos + FASE Liquidaciones + docs). No se pinea el número exacto aquí para evitar el off-by-one autoreferencial (ver `e474022`).

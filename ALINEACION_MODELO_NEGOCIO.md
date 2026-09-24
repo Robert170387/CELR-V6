@@ -204,6 +204,21 @@ el wiring en el payload y (opcional) una columna de KMS en la tabla.
 | **Movimientos bancarios — pantalla** | UI de `movimientos_bancarios` + cruce anticipos | Frontend |
 | **B1 / B3 / B4 / B5** | Decisiones de negocio/seguridad en `INSTRUCCIONES_OPENCODE.md` §8 | varía |
 
+### B6 — Regla 4 (componente saldo): no forzable hoy
+
+> **Decisión registrada (2026-09-23):** no forzar el componente de saldo de la Regla 4.
+> El commit `9e07857` mantiene forzado únicamente el componente Flypass en el cierre individual
+> y mensual. La auditoría sobre 18 ODTs activos encontró 15/18 con saldo no cubierto, incluidas
+> 9 ya `liquidado`; 13/18 no tienen ningún ingreso calificable y las 3 ODTs restantes aparecen
+> limpias solo porque sus snapshots (`saldo_flete_esperado` y `gastos_totales_viaje`) están en
+> `NULL`. La ambigüedad semántica entre “Finalizada” del brief y `liquidado` (estado real del
+> backend) sigue pendiente de decisión de negocio. También queda por confirmar si la fórmula
+> `saldo_flete_esperado` —que no descuenta gastos— representa el saldo operativo que debe exigir
+> la Regla 4. El cierre Flypass continúa vigente desde `9e07857`; B6 no habilita su forzado.
+
+**Preguntas de negocio abiertas:** qué significa cerrar una ODT operativamente, cuándo es
+aceptable cerrar sin saldo cubierto y si los ingresos se cargarán sistemáticamente en el futuro.
+
 ---
 
 ## 7. Ejecución y gates
