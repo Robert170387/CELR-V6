@@ -35,6 +35,20 @@ CABECERAS_REQUERIDAS = {
     "PUNTO ATENCION",
 }
 
+_FORMATOS_FECHA = (
+    "%Y/%m/%d %H:%M:%S",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y/%m/%d %H:%M",
+    "%Y-%m-%d %H:%M",
+    "%Y/%m/%d",
+    "%Y-%m-%d",
+    "%d/%m/%Y %H:%M:%S",
+    "%d-%m-%Y %H:%M:%S",
+    "%d/%m/%Y",
+    "%d-%m-%Y",
+)
+
 
 def _normalizar_encabezado(valor: Any) -> str:
     """Normaliza encabezados sin alterar su contenido de presentación."""
@@ -58,7 +72,12 @@ def _valor_jsonable(valor: Any) -> Any:
     return str(valor)
 
 
-def _parsear_fecha_hora(valor: Any) -> datetime:
+def _parsear_fecha(valor: Any) -> datetime:
+    """Parsea fechas comunes de Excel y las normaliza a UTC.
+
+    Acepta valores nativos de openpyxl, seriales de Excel y textos con
+    separadores slash/guion, ISO o DD/MM/YYYY, con o sin hora.
+    """
     if isinstance(valor, datetime):
         if valor.tzinfo is None:
             return valor.replace(tzinfo=timezone.utc)
@@ -81,28 +100,23 @@ def _parsear_fecha_hora(valor: Any) -> datetime:
     if not texto:
         raise ValueError("FECHA_MVTO está vacío")
 
-    formatos = (
-        "%Y-%m-%d %H:%M:%S",
-        "%d/%m/%Y %H:%M:%S",
-        "%d-%m-%Y %H:%M:%S",
-        "%Y-%m-%d",
-        "%d/%m/%Y",
-        "%d-%m-%Y",
-        "%Y/%m/%d",
-    )
-    for formato in formatos:
+    for formato in _FORMATOS_FECHA:
         try:
             convertido = datetime.strptime(texto, formato)
             return convertido.replace(tzinfo=timezone.utc)
         except ValueError:
             continue
+
     try:
         convertido = datetime.fromisoformat(texto.replace("Z", "+00:00"))
-        if convertido.tzinfo is None:
-            return convertido.replace(tzinfo=timezone.utc)
-        return convertido.astimezone(timezone.utc)
     except ValueError as exc:
-        raise ValueError(f"FECHA_MVTO inválida: {texto!r}") from exc
+        raise ValueError(
+            f"FECHA_MVTO inválida: {texto!r}. "
+            f"Formatos aceptados: {', '.join(_FORMATOS_FECHA)}"
+        ) from exc
+    if convertido.tzinfo is None:
+        return convertido.replace(tzinfo=timezone.utc)
+    return convertido.astimezone(timezone.utc)
 
 
 def _parsear_monto(valor: Any) -> Decimal:
@@ -163,7 +177,7 @@ def _parsear_fila(
         raise ValueError("TRANSACCION supera 50 caracteres")
 
     placa = texto_requerido("PLACA").upper()
-    fecha_hora = _parsear_fecha_hora(obtener("FECHA_MVTO"))
+    fecha_hora = _parsear_fecha(obtener("FECHA_MVTO"))
     fecha = fecha_hora.date()
     monto = _parsear_monto(obtener("MONTO"))
     punto = "" if obtener("PUNTO ATENCION") is None else str(obtener("PUNTO ATENCION")).strip()

@@ -3,7 +3,7 @@ import re
 import sys
 import uuid
 import zipfile
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from io import BytesIO
 
@@ -43,7 +43,7 @@ HEADERS = [
 def fila_excel(
     transaccion: str,
     placa: str,
-    fecha: date,
+    fecha: date | str | datetime,
     monto: str,
     punto: str = "Peaje Test",
 ) -> list:
@@ -458,6 +458,124 @@ def main() -> int:
         else:
             raise AssertionError("Se esperaba ValueError por headers faltantes")
         print("  TF10 OK")
+
+        print("\n=== TF11: múltiples formatos de fecha ===")
+        formatos_fecha = [
+            ("2026/08/01 09:26:06", datetime(2026, 8, 1, 9, 26, 6, tzinfo=timezone.utc)),
+            ("2026-08-01 09:26:06", datetime(2026, 8, 1, 9, 26, 6, tzinfo=timezone.utc)),
+            ("2026-08-01T09:26:06", datetime(2026, 8, 1, 9, 26, 6, tzinfo=timezone.utc)),
+            ("2026/08/01", datetime(2026, 8, 1, tzinfo=timezone.utc)),
+            ("01/08/2026 09:26:06", datetime(2026, 8, 1, 9, 26, 6, tzinfo=timezone.utc)),
+            ("01-08-2026 09:26:06", datetime(2026, 8, 1, 9, 26, 6, tzinfo=timezone.utc)),
+            (
+                datetime(2026, 8, 1, 9, 26, 6),
+                datetime(2026, 8, 1, 9, 26, 6, tzinfo=timezone.utc),
+            ),
+        ]
+        contenido_fechas = workbook_bytes(
+            [
+                fila_excel(
+                    f"FLYTEST-{sufijo}-F{indice}",
+                    vehiculo.placa,
+                    valor_fecha,
+                    f"{17000 + indice}.00",
+                )
+                for indice, (valor_fecha, _esperado) in enumerate(formatos_fecha, start=1)
+            ]
+        )
+        reporte = importar_excel_flypass(
+            db, contenido_fechas, "formatos-fecha.xlsx"
+        )
+        assert reporte["insertados"] == len(formatos_fecha), reporte
+        assert reporte["errores"] == [], reporte
+        for indice, (_valor_fecha, esperado) in enumerate(formatos_fecha, start=1):
+            transaccion = f"FLYTEST-{sufijo}-F{indice}"
+            fila_fecha = db.query(FlypassTransaccion).filter(
+                FlypassTransaccion.num_transaccion_flypass == transaccion
+            ).one()
+            assert fila_fecha.fecha_transaccion == esperado, (
+                fila_fecha.fecha_transaccion,
+                esperado,
+            )
+            flypass_ids.append(fila_fecha.id)
+            gasto_ids.append(fila_fecha.gasto_id)
+        print("  TF11 OK")
+
+        print("\n=== TF12: fecha inválida se rechaza parcialmente ===")
+        contenido_fecha_invalida = workbook_bytes(
+            [
+                fila_excel(
+                    f"FLYTEST-{sufijo}-12",
+                    vehiculo.placa,
+                    "no-es-fecha",
+                    "18000.00",
+                ),
+                fila_excel(
+                    f"FLYTEST-{sufijo}-13",
+                    vehiculo.placa,
+                    "2026/08/02 10:00:00",
+                    "18001.00",
+                ),
+            ]
+        )
+        reporte = importar_excel_flypass(
+            db, contenido_fecha_invalida, "fecha-invalida.xlsx"
+        )
+        assert reporte["insertados"] == 1, reporte
+        assert len(reporte["errores"]) == 1, reporte
+        error_fecha = reporte["errores"][0]
+        assert error_fecha["tipo"] == "dato_invalido", reporte
+        assert "FECHA_MVTO inválida" in error_fecha["error"], error_fecha
+        assert "Formatos aceptados:" in error_fecha["error"], error_fecha
+        assert not db.query(FlypassTransaccion).filter(
+            FlypassTransaccion.num_transaccion_flypass == f"FLYTEST-{sufijo}-12"
+        ).first()
+        fila_fecha_valida = db.query(FlypassTransaccion).filter(
+            FlypassTransaccion.num_transaccion_flypass == f"FLYTEST-{sufijo}-13"
+        ).one()
+        flypass_ids.append(fila_fecha_valida.id)
+        gasto_ids.append(fila_fecha_valida.gasto_id)
+        print("  TF12 OK")
+
+        print("\n=== TF13: fechas vacías se reportan sin abortar ===")
+        contenido_fechas_vacias = workbook_bytes(
+            [
+                fila_excel(
+                    f"FLYTEST-{sufijo}-14",
+                    vehiculo.placa,
+                    "",
+                    "19000.00",
+                ),
+                fila_excel(
+                    f"FLYTEST-{sufijo}-15",
+                    vehiculo.placa,
+                    None,
+                    "19001.00",
+                ),
+                fila_excel(
+                    f"FLYTEST-{sufijo}-16",
+                    vehiculo.placa,
+                    "2026-08-03",
+                    "19002.00",
+                ),
+            ]
+        )
+        reporte = importar_excel_flypass(
+            db, contenido_fechas_vacias, "fechas-vacias.xlsx"
+        )
+        assert reporte["insertados"] == 1, reporte
+        assert len(reporte["errores"]) == 2, reporte
+        assert all(
+            error["tipo"] == "dato_invalido"
+            and "FECHA_MVTO está vacío" in error["error"]
+            for error in reporte["errores"]
+        ), reporte
+        fila_fecha_final = db.query(FlypassTransaccion).filter(
+            FlypassTransaccion.num_transaccion_flypass == f"FLYTEST-{sufijo}-16"
+        ).one()
+        flypass_ids.append(fila_fecha_final.id)
+        gasto_ids.append(fila_fecha_final.gasto_id)
+        print("  TF13 OK")
 
         print("\n[TODOS LOS TESTS FLYPASS IMPORT PASARON]")
         return 0
