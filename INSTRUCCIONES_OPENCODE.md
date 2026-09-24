@@ -19,12 +19,12 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 
 ## 3. Gates antes de commitear
 
-1. **Backend:** las **10** suites `backend/scripts/test_*.py` en verde (desde `backend/`, con
+1. **Backend:** las **11** suites `backend/scripts/test_*.py` en verde (desde `backend/`, con
    `PYTHONPATH=.` y `DATABASE_URL` → `:5433`), con el venv:
    `venv\Scripts\python.exe scripts\test_<suite>.py` — los scripts imprimen checks `✓`/`✗`;
    bajo pipe en Windows ejecutar con `$env:PYTHONIOENCODING="utf-8"` (cp1252 rompe esos
-   caracteres). `test_cierre_mensual.py` es la suite de la FASE B2 y
-   `test_flypass_import.py` cubre TF1–TF8.
+   caracteres). `test_cierre_mensual.py` es la suite de la FASE B2;
+   `test_flypass_import.py` cubre TF1–TF8 y `test_flypass_list.py` cubre TL1–TL9.
 2. **Humo:** `venv\Scripts\python.exe scripts\smoke.py` → `[SMOKE OK]`.
 3. **E2E** (servidor vivo, p. ej. Docker `:8001`):
    `$env:CELR_BASE_URL="http://localhost:8001"; $env:PYTHONUTF8="1";
@@ -138,11 +138,13 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
   | 3 UI frontend | `2131127` | `Liquidaciones.tsx`: «Cerrar mes» + «Meses cerrados» (Detalle/Reabrir/Cancelar); `api/index.ts` (`CierreMensual` + métodos). ⚠️ El commit (etiquetado `feat(frontend)`) arrastra el backend read-only `GET /cierres-mensuales` (soporte del listado) |
   | 4 docs | `8d72c3b` | Sección B2 en `ALINEACION_MODELO_NEGOCIO.md` §5 + pipeline/nota `PYTHONIOENCODING` aquí (§3) |
 
-- **FASE Flypass import cerrada (2026-09-23):**
+- **FASE Flypass completa cerrada (2026-09-23):**
   | Sub-fase | Commit | Qué cambió |
   |---|---|---|
   | 1 — enforcement de cierre | `9e07857` | El cierre ODT bloquea Flypass pendiente; el componente saldo queda diferido como B6. |
   | 2 — importador Excel | `d4736b7` | `openpyxl`, `raw_data` JSONB, matching/creación de gastos, auto-asociación ODT y suite TF1–TF8. |
+  | 3 — listado backend | `cae6b1a` | `GET /api/v1/flypass` con filtros, paginación, JOIN de placa y suite TL1–TL9. |
+  | 4 — UI de consulta/importación | `4aaedc8` | Página Flypass, importación, reporte, tabla, filtros, paginación y menú financiero. |
 
 - **FASE Seeds (partición segura) cerrada (2026-09-23):**
   | Sub-fase | Commit | Qué cambió |

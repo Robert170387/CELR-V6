@@ -190,14 +190,16 @@ el wiring en el payload y (opcional) una columna de KMS en la tabla.
 > (sub-fases 1–3: `1a11e18`, `61a56be` y `2131127`; docs en este commit). Full-stack + migración; gates
 > verdes por sub-fase y baseline `24/6/0` intacto.
 
-> ✅ **Cerrada (2026-09-23):** **Flypass import — Excel con matching automático** — commits
-> `9e07857` y `d4736b7`. El importador acepta `.xlsx`, conserva la fila original en
-> `flypass_transacciones.raw_data`, resuelve placa, matchea o crea gastos `peajes`, y asocia
-> una ODT única por vehículo/fecha. Comportamiento D híbrido: duplicados, sin placa, ambiguos
-> y filas sin ODT quedan en el reporte. P4: `pendiente_por_pagar`; P5: proveedor único
-> `Flypass` (se crea una sola vez con NIT nullable). La legalización es automática al setear
-> `gasto_id`; el gasto creado usa `metodo_pago="tag"`. TF1–TF8, 9 suites existentes,
-> smoke, E2E `--purge`, Alembic y baseline quedaron verdes.
+> ✅ **Cerrada (2026-09-23):** **Flypass completo — Excel, matching, legalización y UI** — commits
+> `9e07857`, `d4736b7`, `cae6b1a` y `4aaedc8`. El importador acepta `.xlsx`, conserva la fila
+> original en `flypass_transacciones.raw_data`, resuelve placa, matchea o crea gastos `peajes`,
+> y asocia una ODT única por vehículo/fecha. El backend agrega listado paginado con filtros;
+> la UI permite consultar, filtrar e importar con reporte. Comportamiento D híbrido:
+> duplicados, sin placa, ambiguos y filas sin ODT quedan en el reporte. P4:
+> `pendiente_por_pagar`; P5: proveedor único `Flypass` (se crea una sola vez con NIT nullable).
+> La legalización es automática al setear `gasto_id`; el gasto creado usa
+> `metodo_pago="tag"`. TF1–TF8, TL1–TL9, 11 suites backend, smoke, E2E `--purge`, build frontend,
+> Alembic y baseline quedaron verdes.
 
 > ✅ **Cerrada (2026-09-23):** **Seeds — partición base/demo** — commits `7a1a384`, `d74fac5`,
 > `5e86fda`, `4c117a9` y `ee86d05`. `seed_base.py` es seguro y siempre presente;
@@ -209,7 +211,6 @@ el wiring en el payload y (opcional) una columna de KMS en la tabla.
 **Fases candidatas restantes:**
 | Fase candidata | Qué implica | Costo |
 |---|---|---|
-| **Flypass — pantalla** | Consulta y carga web de consumos usando el importador Excel existente | Frontend |
 | **Movimientos bancarios — pantalla** | UI de `movimientos_bancarios` + cruce anticipos | Frontend |
 | **B1 / B3 / B4 / B5 / B6** | Decisiones de negocio/seguridad en `INSTRUCCIONES_OPENCODE.md` §8 | varía |
 

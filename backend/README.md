@@ -80,6 +80,14 @@ La asociación a una ODT es best-effort por vehículo y rango de fechas. La resp
 el reporte de insertados, duplicados, sin placa, ambiguos, gastos creados/matcheados, sin ODT
 y errores.
 
+## Listado Flypass
+
+El endpoint `GET /api/v1/flypass` devuelve `{data, total}` con paginación offset-based:
+`skip` (default `0`) y `limit` (default `50`, máximo `200`; un límite mayor responde `422`).
+Los filtros disponibles son `fecha_desde`, `fecha_hasta`, `placa`, `sin_odt` y `sin_gasto`.
+El filtro de placa resuelve `vehiculos.placa` mediante `LEFT JOIN`; la respuesta no expone
+`raw_data`. Cada fila incluye `placa`, `viaje_id`, `gasto_id` y `legalizado_en_gastos`.
+
 ## Ejecutar el servidor
 ```
 set DATABASE_URL=postgresql://postgres:admin@localhost:5433/celr_v6_db
