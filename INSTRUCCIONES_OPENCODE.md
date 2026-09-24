@@ -84,6 +84,14 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 - Baseline estable (verificado): `usuarios=7, vehiculos=9, conductores=7, proveedores=6,
   viajes_odt=24, gastos=37, ingresos=8, liquidaciones_conductores=6, refresh_tokens=0`;
   `km_actual` SKN756 = `125000.00`; max ODT `ODT-2026-000030`.
+- **Baseline de la app DB vs uso real.** El baseline `7/9/7/6/24/37/8/6/0` describe el estado
+  del seed limpio. La app DB de desarrollo acumula datos de uso real (importaciones Flypass,
+  gastos, etc.). Los tests no deben exigir conteos absolutos en la app DB — solo:
+  - `alembic_version` = head.
+  - `refresh_tokens=0` tras las suites.
+  Los conteos exactos se validan **solo** en `celr_v6_fresh_test` (BD desechable, virgen).
+  Si alguna vez querés resetear la app DB al estado del seed, usá un script dedicado (fase
+  futura: `scripts/db_reset_to_seed.py`), **nunca** ediciones manuales.
 - `secuencias_documento` **no se resetea** (nunca rewinds ni edits manuales).
 - **Producción (Render):** cada entorno tiene su propia BD, así que `secuencias_documento`
   arranca en cero → los primeros ODT serán `ODT-2026-000001…`. **Es normal, no es un bug**;

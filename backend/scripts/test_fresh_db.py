@@ -53,9 +53,6 @@ BASELINE_TABLES = [
     "liquidaciones_conductores",
     "refresh_tokens",
 ]
-EXPECTED_BASELINE = [7, 9, 7, 6, 24, 37, 8, 6, 0]
-
-
 class TestFreshDBError(RuntimeError):
     """Error de una comprobacion del test fresh DB."""
 
@@ -362,11 +359,10 @@ def main() -> int:
             pre_state["versions"] == (HEAD_REVISION,),
             f"Precondición fallida: alembic_version={pre_state['versions']}",
         )
-        _check(
-            list(pre_state["counts"]) == EXPECTED_BASELINE,
-            f"Precondición fallida: baseline={pre_state['counts']}",
+        print(
+            f"[OK] Precondición: celr_v6_db en head ({HEAD_REVISION}); "
+            "fresh DB distinta."
         )
-        print("[OK] Precondición: celr_v6_db está en head y baseline 7/9/7/6/24/37/8/6/0")
 
         admin_engine = create_engine(
             ADMIN_DB_URL_TEXT,

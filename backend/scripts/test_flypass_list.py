@@ -1,3 +1,10 @@
+"""Test del listado Flypass.
+
+Las fixtures usan fechas en 2099 para aislarse del uso real de la app DB
+(puede tener transacciones reales de Flypass de 2026 en adelante).
+Todas las queries al endpoint incluyen el filtro base
+fecha_desde=2099-01-01&fecha_hasta=2099-12-31.
+"""
 import os
 import sys
 import uuid
@@ -16,6 +23,14 @@ from app.models.flota import Conductor, Usuario as UsuarioModel, Vehiculo
 from app.models.operaciones import Gasto, ViajeODT
 from app.services.operaciones import recalcular_viaje
 from _test_helpers import capturar_token_ids, limpiar_tokens_nuevos
+
+
+FECHA_TEST_DESDE = "2099-01-01"
+FECHA_TEST_HASTA = "2099-12-31"
+FILTRO_BASE = {
+    "fecha_desde": FECHA_TEST_DESDE,
+    "fecha_hasta": FECHA_TEST_HASTA,
+}
 
 
 def crear_vehiculo(db: Session, placa: str) -> Vehiculo:
@@ -78,8 +93,8 @@ def crear_odt(db: Session, vehiculo_id: int, conductor_id: int) -> ViajeODT:
         conductor_id=conductor_id,
         origen="Bogota",
         destino="Medellin",
-        fecha_salida=date(2026, 9, 1),
-        fecha_llegada=date(2026, 9, 5),
+        fecha_salida=date(2099, 6, 14),
+        fecha_llegada=date(2099, 6, 16),
         valor_flete_manifiesto=Decimal("1000000.00"),
         retefuente_porcentaje=Decimal("10.00"),
         reteica_porcentaje=Decimal("5.00"),
@@ -126,9 +141,11 @@ def crear_transaccion(
 
 
 def listar(client: TestClient, headers: dict, params: dict | None = None):
+    """Lista Flypass aplicando el filtro base de aislamiento."""
+    final_params = {**FILTRO_BASE, **(params or {})}
     respuesta = client.get(
         "/api/v1/flypass",
-        params=params or {},
+        params=final_params,
         headers=headers,
     )
     assert respuesta.status_code == 200, respuesta.text
@@ -165,18 +182,18 @@ def main() -> int:
         conductor_id = conductor.id
         viaje = crear_odt(db, vehiculo_a.id, conductor.id)
         viaje_ids.append(viaje.id)
-        gasto_a = crear_gasto(db, vehiculo_a.id, date(2026, 9, 1), "10000.00", sufijo, 1)
-        gasto_b = crear_gasto(db, vehiculo_a.id, date(2026, 9, 2), "20000.00", sufijo, 2)
+        gasto_a = crear_gasto(db, vehiculo_a.id, date(2099, 3, 15), "10000.00", sufijo, 1)
+        gasto_b = crear_gasto(db, vehiculo_a.id, date(2099, 6, 15), "20000.00", sufijo, 2)
         gasto_ids.extend([gasto_a.id, gasto_b.id])
 
         transaccion_a = crear_transaccion(
-            db, sufijo, 1, vehiculo_a.id, date(2026, 9, 1), "10000.00", gasto_a.id, None
+            db, sufijo, 1, vehiculo_a.id, date(2099, 3, 15), "10000.00", gasto_a.id, None
         )
         transaccion_b = crear_transaccion(
-            db, sufijo, 2, vehiculo_a.id, date(2026, 9, 2), "20000.00", gasto_b.id, viaje.id
+            db, sufijo, 2, vehiculo_a.id, date(2099, 6, 15), "20000.00", gasto_b.id, viaje.id
         )
         transaccion_c = crear_transaccion(
-            db, sufijo, 3, vehiculo_b.id, date(2026, 9, 3), "30000.00", None, None
+            db, sufijo, 3, vehiculo_b.id, date(2099, 9, 15), "30000.00", None, None
         )
         flypass_ids.extend([transaccion_a.id, transaccion_b.id, transaccion_c.id])
 
@@ -201,15 +218,15 @@ def main() -> int:
         print("  TL1 OK")
 
         print("\n=== TL2: filtro fecha_desde ===")
-        body = listar(client, headers, {"fecha_desde": "2026-09-02"})
+        body = listar(client, headers, {"fecha_desde": "2099-05-01"})
         assert body["total"] == 2, body
         assert ids(body) == [f"FLY-LIST-{sufijo}-3", f"FLY-LIST-{sufijo}-2"], body
         print("  TL2 OK")
 
         print("\n=== TL3: filtro fecha_hasta ===")
-        body = listar(client, headers, {"fecha_hasta": "2026-09-02"})
-        assert body["total"] == 2, body
-        assert ids(body) == [f"FLY-LIST-{sufijo}-2", f"FLY-LIST-{sufijo}-1"], body
+        body = listar(client, headers, {"fecha_hasta": "2099-05-01"})
+        assert body["total"] == 1, body
+        assert ids(body) == [f"FLY-LIST-{sufijo}-1"], body
         print("  TL3 OK")
 
         print("\n=== TL4: filtro placa ===")
@@ -243,7 +260,8 @@ def main() -> int:
 
         print("\n=== TL8: límite máximo ===")
         response = client.get(
-            "/api/v1/flypass?limit=500",
+            "/api/v1/flypass",
+            params={**FILTRO_BASE, "limit": 500},
             headers=headers,
         )
         assert response.status_code == 422, response.text

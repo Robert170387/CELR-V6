@@ -11,7 +11,8 @@ Verifica:
   3. Seed clave presente: admin, vehiculo SKN756, conductor seed, proveedor 900123456,
      catalogo DIVIPOLA >= 1000 municipios.
   4. Login 200 (test@celr.com / admin123) y estado de cambio de contrasena forzado.
-  5. Conteos baseline de las tablas operativas (referencia post-migracion).
+  5. Conteos informativos de las tablas operativas (la app DB puede
+     contener datos de uso real; no son un invariante de baseline).
 
 Uso (desde backend/, con PYTHONPATH=. y DATABASE_URL apuntando al stack 5433):
     venv\\Scripts\\python.exe scripts\\smoke.py
@@ -33,7 +34,7 @@ from app.core.config import settings
 from app.db.session import engine, SessionLocal
 from app.models.flota import Usuario as UsuarioModel, RefreshToken
 
-TABLAS_BASELINE = [
+TABLAS_INFORMATIVAS = [
     "usuarios",
     "vehiculos",
     "conductores",
@@ -42,7 +43,6 @@ TABLAS_BASELINE = [
     "gastos",
     "ingresos",
     "liquidaciones_conductores",
-    "refresh_tokens",
 ]
 
 
@@ -171,16 +171,18 @@ def smoke() -> int:
         errores.append(f"login: {e}")
         print(f"[ERR] 4. Login: {e}")
 
-    # 5) Conteos baseline
+    # 5) Conteos informativos: la app DB acumula uso real y no exige baseline.
     try:
         with engine.connect() as conn:
-            for t in TABLAS_BASELINE:
-                n = conn.execute(text(f"SELECT count(*) FROM {t}")).scalar()
-                print(f"      baseline {t}: {n}")
-        print("[OK ] 5. Conteos baseline")
+            conteos = [
+                str(conn.execute(text(f"SELECT count(*) FROM {tabla}")).scalar())
+                for tabla in TABLAS_INFORMATIVAS
+            ]
+        print("[INFO] conteos: " + "/".join(conteos))
+        print("[OK ] 5. Conteos informativos")
     except Exception as e:
         errores.append(f"counts: {e}")
-        print(f"[ERR] 5. Conteos baseline: {e}")
+        print(f"[ERR] 5. Conteos informativos: {e}")
 
     for w in advertencias:
         print(f"[WRN] {w}")
