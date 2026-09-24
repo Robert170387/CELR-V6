@@ -1,47 +1,39 @@
-"""Seed idempotente del catalogo DIVIPOLA (departamentos/municipios).
+"""Wrapper compatible del seed idempotente del catálogo DIVIPOLA.
 
-Lee backend/data/municipios_colombia.json (dataset CC-BY-4.0 de
-open-admin-data/colombia-administrative-divisions, 1122 municipios) y
-hace upsert por codigo_dane.
+La sincronización canónica vive en ``backend/seed_base.py`` y no hace commit.
+Este entrypoint conserva el contrato histórico: al ejecutarse directamente,
+la transacción es de este wrapper y se confirma al finalizar.
 """
-import json
 import os
 import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from seed_base import DATA_PATH, sincronizar_municipios
 from app.db.session import SessionLocal
-from app.models.ubicacion import Municipio
-
-DATA_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "municipios_colombia.json")
 
 
+# Se mantiene el nombre público histórico para callers existentes.
 def seed_municipios(db, data_path=DATA_PATH) -> tuple:
-    with open(data_path, encoding="utf-8") as f:
-        registros = json.load(f)
-
-    insertados = 0
-    for reg in registros:
-        codigo_dane = reg["code"]["id"][2:]
-        departamento = reg["parent"]["name"]["local"]
-        municipio = reg["name"]["local"]
-        existente = db.query(Municipio).filter(Municipio.codigo_dane == codigo_dane).first()
-        if existente:
-            if existente.departamento != departamento or existente.municipio != municipio:
-                existente.departamento = departamento
-                existente.municipio = municipio
-        else:
-            db.add(Municipio(codigo_dane=codigo_dane, departamento=departamento, municipio=municipio))
-            insertados += 1
+    resultado = sincronizar_municipios(db, data_path=data_path)
     db.commit()
-    return insertados, len(registros)
+    return resultado.insertados, resultado.total_fuente
 
 
-if __name__ == "__main__":
+def main() -> int:
     db = SessionLocal()
     try:
         insertados, total_fuente = seed_municipios(db)
         print(f"Municipios en fuente: {total_fuente} | Insertados: {insertados}")
         print("[OK] Seed de municipios finalizado")
+        return 0
+    except Exception as exc:
+        db.rollback()
+        print(f"ERROR durante el seed de municipios: {exc}", file=sys.stderr)
+        return 1
     finally:
         db.close()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
