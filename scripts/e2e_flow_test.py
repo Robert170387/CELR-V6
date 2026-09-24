@@ -15,6 +15,8 @@ Uso: `python scripts/e2e_flow_test.py [--purge]`
 import sys
 import os
 import time
+from datetime import datetime, timezone
+
 import requests
 from decimal import Decimal
 
@@ -178,6 +180,29 @@ def test_05_close_viaje(headers, viaje_id, balance):
     return result["liquidacion_id"]
 
 
+def purge_refresh_tokens(inicio):
+    """Elimina solo los refresh tokens del admin creados desde ``inicio``."""
+    from sqlalchemy import create_engine, text
+
+    url = os.getenv("DATABASE_URL", "postgresql://postgres:admin@localhost:5433/celr_v6_db")
+    engine = create_engine(url)
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                """
+                DELETE FROM refresh_tokens
+                WHERE usuario_id = (
+                    SELECT id FROM usuarios WHERE correo = :correo
+                )
+                AND creado_en >= :inicio
+                RETURNING id
+                """
+            ),
+            {"correo": "test@celr.com", "inicio": inicio},
+        ).fetchall()
+    print(f"  [CLEANUP] Refresh tokens del login eliminados: {len(rows)}")
+
+
 def purge_creados(viaje_id, liquidacion_id=None):
     """Elimina (DELETE real, orden inverso de FK) los datos creados por esta corrida E2E.
 
@@ -219,6 +244,7 @@ if __name__ == "__main__":
         print("  Modo --purge activo: la corrida se limpia sola al final")
     print("="*60)
 
+    inicio = datetime.now(timezone.utc)
     try:
         # Paso 1: Autenticación
         token, headers = test_01_auth()
@@ -255,3 +281,5 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         sys.exit(1)
+    finally:
+        purge_refresh_tokens(inicio)

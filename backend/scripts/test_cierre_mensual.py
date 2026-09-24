@@ -341,6 +341,8 @@ def main():
     print("Iniciando prueba de cierre mensual B2 (CELR v6)...")
     db = SessionLocal()
     viajes_creados = []
+    inicio = datetime.now(timezone.utc)
+    admin = None
     try:
         admin = db.query(UsuarioModel).filter(UsuarioModel.correo == "test@celr.com").first()
         assert admin is not None, "Se requiere admin test@celr.com (ejecuta seed.py)"
@@ -399,6 +401,8 @@ def main():
         traceback.print_exc()
     finally:
         try:
+            from app.models.flota import RefreshToken
+
             for v in viajes_creados:
                 db.query(LiquidacionConductor).filter(
                     LiquidacionConductor.viajes_ids.contains([v.id])
@@ -406,9 +410,13 @@ def main():
             via_ids = [v.id for v in viajes_creados]
             if via_ids:
                 db.query(ViajeODT).filter(ViajeODT.id.in_(via_ids)).delete(synchronize_session=False)
+            if admin is not None:
+                db.query(RefreshToken).filter(
+                    RefreshToken.usuario_id == admin.id,
+                    RefreshToken.creado_en >= inicio,
+                ).delete(synchronize_session=False)
             admin2 = db.query(UsuarioModel).filter(UsuarioModel.correo == "admin2@celr.com").first()
             if admin2:
-                from app.models.flota import RefreshToken
                 db.query(RefreshToken).filter(RefreshToken.usuario_id == admin2.id).delete(synchronize_session=False)
                 db.query(LiquidacionConductor).filter(
                     (LiquidacionConductor.creado_por == admin2.id) |
