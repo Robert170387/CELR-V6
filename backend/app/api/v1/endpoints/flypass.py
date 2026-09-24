@@ -9,7 +9,8 @@ from app.core.roles import ROLES_LIQUIDACIONES
 from app.db.session import get_db
 from app.models.financiero import FlypassTransaccion
 from app.models.flota import Usuario, Vehiculo
-from app.schemas.flypass import FlypassListResponse
+from app.models.operaciones import ViajeODT
+from app.schemas.flypass import FlypassListItem, FlypassListResponse, FlypassUpdate
 from app.services.flypass_import import MAX_ARCHIVO_BYTES, importar_excel_flypass
 
 router = APIRouter(dependencies=[Depends(RoleChecker(ROLES_LIQUIDACIONES))])
@@ -83,6 +84,7 @@ def listar_flypass(
                 "viaje_id": transaccion.viaje_id,
                 "gasto_id": transaccion.gasto_id,
                 "legalizado_en_gastos": transaccion.legalizado_en_gastos,
+                "estado": transaccion.estado,
             }
             for transaccion, placa_resuelta in filas
         ],
@@ -119,3 +121,81 @@ async def importar_flypass(
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/flypass/{flypass_id}", response_model=FlypassListItem)
+def editar_flypass(
+    flypass_id: int,
+    update: FlypassUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Actualiza solo la asociación y el estado de una transacción Flypass."""
+    flypass = db.query(FlypassTransaccion).filter(
+        FlypassTransaccion.id == flypass_id
+    ).first()
+    if not flypass:
+        raise HTTPException(status_code=404, detail="Flypass transaccion no encontrada")
+
+    campos_provistos = update.model_fields_set
+    if not campos_provistos:
+        raise HTTPException(
+            status_code=422,
+            detail="Debe proveer al menos viaje_id o estado",
+        )
+
+    if "estado" in campos_provistos and update.estado is None:
+        raise HTTPException(status_code=422, detail="estado no puede ser null")
+
+    if "viaje_id" in campos_provistos and update.viaje_id is not None:
+        viaje = (
+            db.query(ViajeODT)
+            .filter(
+                ViajeODT.id == update.viaje_id,
+                ViajeODT.eliminado_en.is_(None),
+            )
+            .first()
+        )
+        if not viaje:
+            raise HTTPException(status_code=404, detail="Viaje no encontrado")
+        if viaje.vehiculo_id != flypass.vehiculo_id:
+            raise HTTPException(
+                status_code=409,
+                detail="El viaje pertenece a otro vehiculo",
+            )
+
+    if "viaje_id" in campos_provistos:
+        flypass.viaje_id = update.viaje_id
+        if "estado" not in campos_provistos:
+            flypass.estado = (
+                "asignado_a_viaje" if flypass.viaje_id is not None else "sin_viaje"
+            )
+
+    if "estado" in campos_provistos:
+        flypass.estado = update.estado
+
+    db.commit()
+    db.refresh(flypass)
+
+    placa = (
+        db.query(Vehiculo.placa)
+        .join(
+            FlypassTransaccion,
+            FlypassTransaccion.vehiculo_id == Vehiculo.id,
+        )
+        .filter(FlypassTransaccion.id == flypass.id)
+        .scalar()
+    )
+    return {
+        "id": flypass.id,
+        "fecha_transaccion": flypass.fecha_transaccion,
+        "valor": flypass.valor,
+        "num_transaccion_flypass": flypass.num_transaccion_flypass,
+        "nombre_peaje": flypass.nombre_peaje,
+        "vehiculo_id": flypass.vehiculo_id,
+        "placa": placa,
+        "viaje_id": flypass.viaje_id,
+        "gasto_id": flypass.gasto_id,
+        "legalizado_en_gastos": flypass.legalizado_en_gastos,
+        "estado": flypass.estado,
+    }
