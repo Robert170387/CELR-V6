@@ -1,13 +1,93 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from datetime import date, datetime, time, timezone
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import RoleChecker, get_current_user
 from app.core.roles import ROLES_LIQUIDACIONES
 from app.db.session import get_db
-from app.models.flota import Usuario
+from app.models.financiero import FlypassTransaccion
+from app.models.flota import Usuario, Vehiculo
+from app.schemas.flypass import FlypassListResponse
 from app.services.flypass_import import MAX_ARCHIVO_BYTES, importar_excel_flypass
 
 router = APIRouter(dependencies=[Depends(RoleChecker(ROLES_LIQUIDACIONES))])
+
+
+@router.get("/flypass", response_model=FlypassListResponse)
+def listar_flypass(
+    fecha_desde: date | None = Query(None),
+    fecha_hasta: date | None = Query(None),
+    placa: str | None = Query(None),
+    sin_odt: bool | None = Query(None),
+    sin_gasto: bool | None = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Lista transacciones Flypass con filtros y paginación."""
+    consulta = db.query(FlypassTransaccion, Vehiculo.placa).outerjoin(
+        Vehiculo,
+        FlypassTransaccion.vehiculo_id == Vehiculo.id,
+    )
+    filtros = []
+    if fecha_desde is not None:
+        filtros.append(
+            FlypassTransaccion.fecha_transaccion
+            >= datetime.combine(fecha_desde, time.min).replace(tzinfo=timezone.utc)
+        )
+    if fecha_hasta is not None:
+        filtros.append(
+            FlypassTransaccion.fecha_transaccion
+            <= datetime.combine(fecha_hasta, time.max).replace(tzinfo=timezone.utc)
+        )
+    if placa is not None:
+        filtros.append(Vehiculo.placa == placa)
+    if sin_odt is not None:
+        filtros.append(
+            FlypassTransaccion.viaje_id.is_(None)
+            if sin_odt
+            else FlypassTransaccion.viaje_id.is_not(None)
+        )
+    if sin_gasto is not None:
+        filtros.append(
+            FlypassTransaccion.gasto_id.is_(None)
+            if sin_gasto
+            else FlypassTransaccion.gasto_id.is_not(None)
+        )
+    if filtros:
+        consulta = consulta.filter(*filtros)
+
+    total = consulta.with_entities(func.count(FlypassTransaccion.id)).scalar() or 0
+    filas = (
+        consulta.order_by(
+            FlypassTransaccion.fecha_transaccion.desc(),
+            FlypassTransaccion.id.desc(),
+        )
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    return {
+        "data": [
+            {
+                "id": transaccion.id,
+                "fecha_transaccion": transaccion.fecha_transaccion,
+                "valor": transaccion.valor,
+                "num_transaccion_flypass": transaccion.num_transaccion_flypass,
+                "nombre_peaje": transaccion.nombre_peaje,
+                "vehiculo_id": transaccion.vehiculo_id,
+                "placa": placa_resuelta,
+                "viaje_id": transaccion.viaje_id,
+                "gasto_id": transaccion.gasto_id,
+                "legalizado_en_gastos": transaccion.legalizado_en_gastos,
+            }
+            for transaccion, placa_resuelta in filas
+        ],
+        "total": total,
+    }
 
 
 @router.post("/flypass/import")
