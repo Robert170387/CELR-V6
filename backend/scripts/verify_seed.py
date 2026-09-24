@@ -1,22 +1,24 @@
-"""Verificación read-only de la idempotencia del seed base.
+"""Verificación read-only de la idempotencia de los seeds base y demo.
 
-El script toma un fingerprint de la BD, ejecuta ``seed_base`` dos veces (N=2)
-y comprueba que:
+El script toma un fingerprint de la BD, ejecuta ``seed_base`` dos veces y
+``seed_demo`` dos veces (N=2 para cada entrypoint) y comprueba que:
 
-- la segunda ejecución no cambia el estado de la primera;
+- la segunda ejecución de cada seed no cambia el estado de su primera;
 - no se modifican registros operativos existentes;
 - el baseline local siga siendo el esperado;
-- ``km_actual`` de SKN756 y ``refresh_tokens`` conserven el estado esperado.
+- ``km_actual`` de SKN756 y ``refresh_tokens`` conserven el estado esperado;
+- el guard de producción rechaza la seed demo.
 
 N=2 es suficiente bajo el contrato actual: la idempotencia operativa se
-define como ``estado_post-N == estado_post-(N+1)``. El seed base no tiene
-fuentes de no-determinismo (no usa ``now()``, aleatoriedad ni orden no
-estable), por lo que una tercera ejecución es informativamente equivalente
-a la segunda bajo ese contrato.
+define como ``estado_post-N == estado_post-(N+1)``. Ni ``seed_base.py`` ni
+``seed_demo.py`` tienen fuentes de no-determinismo (no usan ``now()``,
+aleatoriedad ni orden no estable), por lo que una tercera ejecución de
+cada entrypoint es informativamente equivalente a la segunda bajo ese
+contrato.
 
-Trigger de N=3: si en el futuro ``seed_base.py`` incorpora cualquier
+Trigger de N=3: si en el futuro cualquiera de esos seeds incorpora una
 operación no determinista, el verificador debe subir a N=3 y comparar
-``estado_post-2 == estado_post-3``.
+``estado_post-2 == estado_post-3`` para el entrypoint afectado.
 
 No imprime hashes de contraseñas ni tokens: solo guarda sus digest SHA-256
 en memoria para compararlos.
@@ -40,6 +42,12 @@ from app.db.session import SessionLocal, engine  # noqa: E402
 from seed_base import (  # noqa: E402
     _configuracion_bootstrap_admin,
     ejecutar_seed_base,
+)
+from seed_demo import (  # noqa: E402
+    ALLOW_DEMO_ENV,
+    SeedDemoError,
+    ejecutar_seed_demo,
+    validar_guard_demo,
 )
 
 
@@ -251,18 +259,18 @@ def _comparar_operativos(
         "secuencias",
     ):
         if antes[clave] != despues[clave]:
-            errores.append(f"seed base modificó datos protegidos: {clave}")
+            errores.append(f"los seeds modificaron datos protegidos: {clave}")
 
     usuarios_antes = {fila["correo"]: fila for fila in antes["usuarios"]}
     usuarios_despues = {fila["correo"]: fila for fila in despues["usuarios"]}
     for correo, fila in usuarios_antes.items():
         if usuarios_despues.get(correo) != fila:
-            errores.append(f"seed base modificó un usuario existente: {correo}")
+            errores.append(f"los seeds modificaron un usuario existente: {correo}")
     nuevos_usuarios = set(usuarios_despues) - set(usuarios_antes)
     permitidos = {bootstrap_email} if bootstrap_email else set()
     if nuevos_usuarios - permitidos:
         errores.append(
-            "seed base creó usuarios no previstos: "
+            "los seeds crearon usuarios no previstos: "
             + ", ".join(sorted(nuevos_usuarios - permitidos))
         )
 
@@ -271,7 +279,7 @@ def _comparar_operativos(
     eliminados = municipios_antes - municipios_despues
     if eliminados:
         errores.append(
-            "seed base eliminó códigos DANE: " + ", ".join(sorted(eliminados))
+            "los seeds eliminaron códigos DANE: " + ", ".join(sorted(eliminados))
         )
     return errores
 
@@ -296,7 +304,36 @@ def _correr_seed_base():
         db.close()
 
 
+def _correr_seed_demo():
+    db = SessionLocal()
+    try:
+        resultado = ejecutar_seed_demo(db)
+        db.commit()
+        return resultado
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def _guard_produccion_rechaza_demo() -> bool:
+    try:
+        validar_guard_demo(environment="production", allow_value="1")
+    except SeedDemoError:
+        return True
+    return False
+
+
 def main() -> int:
+    if not _guard_produccion_rechaza_demo():
+        print(
+            "[ERR] El guard de producción no rechazó la seed demo",
+            file=sys.stderr,
+        )
+        print("[VERIFY SEED ERROR]")
+        return 1
+
     try:
         configuracion = _configuracion_bootstrap_admin()
         bootstrap_email = configuracion[0] if configuracion else None
@@ -325,25 +362,59 @@ def main() -> int:
             print("[VERIFY SEED ERROR]")
             return 1
 
+    try:
+        # El verificador activa el opt-in solo dentro de este proceso y restaura
+        # la variable original al terminar; no modifica el entorno persistente.
+        validar_guard_demo(allow_value="1")
+    except SeedDemoError as exc:
+        print(f"[ERR] Guard local de seed demo: {exc}", file=sys.stderr)
+        return 1
+
     print(f"[INFO] Fingerprint antes: {_fingerprint_sha256(antes)}")
 
     try:
-        primera = _correr_seed_base()
-        despues_primera = _fingerprint()
-        segunda = _correr_seed_base()
-        despues_segunda = _fingerprint()
+        base_primera = _correr_seed_base()
+        despues_base_primera = _fingerprint()
+        base_segunda = _correr_seed_base()
+        despues_base_segunda = _fingerprint()
+
+        allow_anterior = os.environ.get(ALLOW_DEMO_ENV)
+        os.environ[ALLOW_DEMO_ENV] = "1"
+        try:
+            demo_primera = _correr_seed_demo()
+            despues_demo_primera = _fingerprint()
+            demo_segunda = _correr_seed_demo()
+            despues_demo_segunda = _fingerprint()
+        finally:
+            if allow_anterior is None:
+                os.environ.pop(ALLOW_DEMO_ENV, None)
+            else:
+                os.environ[ALLOW_DEMO_ENV] = allow_anterior
     except Exception as exc:
-        print(f"[ERR] Ejecución del seed base: {exc}", file=sys.stderr)
+        print(f"[ERR] Ejecución de seeds: {exc}", file=sys.stderr)
         print("[VERIFY SEED ERROR]")
         return 1
 
-    if despues_primera != despues_segunda:
-        print("[ERR] La segunda ejecución cambió el fingerprint", file=sys.stderr)
-        print("[VERIFY SEED ERROR] no idempotente")
+    if despues_base_primera != despues_base_segunda:
+        print(
+            "[ERR] La segunda ejecución de seed_base cambió el fingerprint",
+            file=sys.stderr,
+        )
+        print("[VERIFY SEED ERROR] seed base no idempotente")
         return 1
 
-    errores = _comparar_operativos(antes, despues_primera, bootstrap_email)
-    errores.extend(_validar_baseline(despues_segunda, "después"))
+    if despues_demo_primera != despues_demo_segunda:
+        print(
+            "[ERR] La segunda ejecución de seed_demo cambió el fingerprint",
+            file=sys.stderr,
+        )
+        print("[VERIFY SEED ERROR] seed demo no idempotente")
+        return 1
+
+    errores = _comparar_operativos(
+        antes, despues_demo_primera, bootstrap_email
+    )
+    errores.extend(_validar_baseline(despues_demo_segunda, "después"))
 
     if errores:
         for error in errores:
@@ -353,13 +424,20 @@ def main() -> int:
 
     print(
         "[OK] Seed base idempotente: "
-        f"municipios_fuente={primera.municipios.total_fuente} "
-        f"insertados={primera.municipios.insertados} "
-        f"actualizados={primera.municipios.actualizados}"
+        f"municipios_fuente={base_primera.municipios.total_fuente} "
+        f"insertados={base_primera.municipios.insertados} "
+        f"actualizados={base_primera.municipios.actualizados}"
     )
     print(
-        "[OK] Protecciones: password/km/refresh_tokens/operativos sin cambios"
+        "[OK] Seed demo idempotente: "
+        f"admin={demo_primera.admin_estado} "
+        f"conductor={demo_primera.conductor_estado} "
+        f"vehiculo={demo_primera.vehiculo_estado} "
+        f"proveedor={demo_primera.proveedor_estado} "
+        f"asignacion={demo_primera.asignacion_estado}"
     )
+    print("[OK] Guard de producción: seed demo rechazada")
+    print("[OK] Protecciones: password/km/refresh_tokens/operativos sin cambios")
     print("[OK] Baseline conservado")
     print("[VERIFY SEED OK]")
     return 0

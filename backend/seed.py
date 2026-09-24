@@ -1,149 +1,107 @@
+"""Wrapper local de seeds de CELR v6.
+
+Ejecuta el seed base y, únicamente con opt-in local explícito, el seed demo.
+No contiene lógica de upsert propia. En producción se debe usar directamente
+``python seed_base.py``.
+"""
+from __future__ import annotations
+
+import sys
+
+from app.core.config import settings
 from app.db.session import SessionLocal
-from app.models.flota import Usuario, Vehiculo, Conductor, ConductorVehiculo
-from app.models.operaciones import Proveedor
-from app.core.security import hash_password, verify_password
-
-ADMIN_EMAIL = "test@celr.com"
-ADMIN_PASSWORD = "admin123"
-CONDUCTOR_CEDULA = "1234567890"
-LEGACY_CONDUCTOR_CEDULA = "12345678"
-PLACA_PRINCIPAL = "SKN756"
-PROVEEDOR_NIT = "900123456"
+from seed_base import ejecutar_seed_base
+from seed_demo import (
+    ALLOW_DEMO_ENV,
+    SeedDemoError,
+    demo_habilitado,
+    ejecutar_seed_demo,
+)
 
 
-def _password_matches(password: str, stored_hash: str) -> bool:
-    try:
-        return verify_password(password, stored_hash)
-    except Exception:
-        return False
-
-
-def upsert_usuario(db) -> Usuario:
-    usuario = db.query(Usuario).filter_by(correo=ADMIN_EMAIL).first()
-    if not usuario:
-        usuario = Usuario(
-            correo=ADMIN_EMAIL,
-            contrasena_hash=hash_password(ADMIN_PASSWORD),
-            rol="admin",
-            activo=True,
-            # Primer arranque: obliga a cambiar la contraseña al primer login.
-            debe_cambiar_contrasena=True,
-        )
-        db.add(usuario)
-    else:
-        if not _password_matches(ADMIN_PASSWORD, usuario.contrasena_hash):
-            usuario.contrasena_hash = hash_password(ADMIN_PASSWORD)
-        if usuario.rol != "admin":
-            usuario.rol = "admin"
-        if not usuario.activo:
-            usuario.activo = True
-    return usuario
-
-
-def upsert_conductor(db) -> Conductor:
-    conductor = db.query(Conductor).filter_by(cedula=CONDUCTOR_CEDULA).first()
-    if conductor:
-        conductor.nombre_completo = "Juan Perez"
-        conductor.telefono = "3001234567"
-        conductor.correo = "juan.perez@celr.com"
-        conductor.estado = "activo"
-        return conductor
-
-    legacy = db.query(Conductor).filter_by(cedula=LEGACY_CONDUCTOR_CEDULA).first()
-    if legacy:
-        legacy.cedula = CONDUCTOR_CEDULA
-        legacy.nombre_completo = "Juan Perez"
-        legacy.telefono = "3001234567"
-        legacy.correo = "juan.perez@celr.com"
-        legacy.estado = "activo"
-        return legacy
-
-    conductor = Conductor(
-        nombre_completo="Juan Perez",
-        cedula=CONDUCTOR_CEDULA,
-        telefono="3001234567",
-        correo="juan.perez@celr.com",
-        estado="activo",
-    )
-    db.add(conductor)
-    return conductor
-
-
-def upsert_vehiculo(db) -> Vehiculo:
-    vehiculo = db.query(Vehiculo).filter_by(placa=PLACA_PRINCIPAL).first()
-    if not vehiculo:
-        vehiculo = Vehiculo(
-            placa=PLACA_PRINCIPAL,
-            marca="Kenworth",
-            modelo="2020",
-            anio=2020,
-            tipo_carroceria="Plataforma",
-            capacidad_ton=30,
-            estado="activo",
-            km_actual=125000,
-            km_inicial_sistema=125000,
-        )
-        db.add(vehiculo)
-    else:
-        vehiculo.marca = "Kenworth"
-        vehiculo.modelo = "2020"
-        vehiculo.anio = 2020
-        vehiculo.tipo_carroceria = vehiculo.tipo_carroceria or "Plataforma"
-        vehiculo.capacidad_ton = vehiculo.capacidad_ton or 30
-        vehiculo.estado = "activo"
-        vehiculo.km_actual = 125000
-        vehiculo.km_inicial_sistema = vehiculo.km_inicial_sistema or 125000
-    return vehiculo
-
-
-def upsert_proveedor(db) -> Proveedor:
-    proveedor = db.query(Proveedor).filter_by(nit=PROVEEDOR_NIT).first()
-    if not proveedor:
-        proveedor = Proveedor(
-            nit=PROVEEDOR_NIT,
-            razon_social="Terpel Colombia S.A.",
-            nombre_comercial="Terpel",
-            tipo="combustible",
-            ciudad="Bogota",
-        )
-        db.add(proveedor)
-    return proveedor
-
-
-def main():
+def _correr_base():
     db = SessionLocal()
     try:
-        upsert_usuario(db)
-        upsert_conductor(db)
-        upsert_vehiculo(db)
-        upsert_proveedor(db)
-        db.flush()
-
-        conductor = db.query(Conductor).filter_by(cedula=CONDUCTOR_CEDULA).first()
-        vehiculo = db.query(Vehiculo).filter_by(placa=PLACA_PRINCIPAL).first()
-        if conductor and vehiculo:
-            asignacion = db.query(ConductorVehiculo).filter_by(
-                conductor_id=conductor.id,
-                vehiculo_id=vehiculo.id,
-                fecha_fin=None,
-            ).first()
-            if not asignacion:
-                db.add(ConductorVehiculo(
-                    conductor_id=conductor.id,
-                    vehiculo_id=vehiculo.id,
-                    es_principal=True,
-                    observaciones="Asignacion principal inicial",
-                ))
-
+        resultado = ejecutar_seed_base(db)
         db.commit()
-        print("--- SEED COMPLETADO CON EXITO ---")
-    except Exception as e:
+        return resultado
+    except Exception:
         db.rollback()
-        print(f"ERROR durante el seed: {e}")
         raise
     finally:
         db.close()
 
 
+def _correr_demo():
+    db = SessionLocal()
+    try:
+        resultado = ejecutar_seed_demo(db)
+        db.commit()
+        return resultado
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def main() -> int:
+    try:
+        base = _correr_base()
+    except Exception as exc:
+        print(f"ERROR durante el seed base: {exc}", file=sys.stderr)
+        return 1
+
+    if base.admin.estado == "omitido":
+        print(
+            "[WARN] Bootstrap admin omitido: no se proporcionaron "
+            "CELR_BOOTSTRAP_ADMIN_EMAIL y CELR_BOOTSTRAP_ADMIN_PASSWORD"
+        )
+    else:
+        print(f"[OK] Bootstrap admin: {base.admin.estado}")
+    print(
+        "[OK] Municipios: "
+        f"fuente={base.municipios.total_fuente} "
+        f"insertados={base.municipios.insertados} "
+        f"actualizados={base.municipios.actualizados}"
+    )
+
+    if settings.ENVIRONMENT.strip().lower() == "production":
+        print(
+            "[ERROR] Seed demo bloqueado: ENVIRONMENT=production; "
+            "para producción usa directamente seed_base.py",
+            file=sys.stderr,
+        )
+        return 1
+
+    if not demo_habilitado():
+        print(
+            f"[WARN] Seed demo omitido: se requiere {ALLOW_DEMO_ENV}=1 "
+            "para habilitar fixtures locales"
+        )
+        print("--- SEED BASE COMPLETADO CON EXITO ---")
+        return 0
+
+    try:
+        demo = _correr_demo()
+    except SeedDemoError as exc:
+        print(f"ERROR durante el seed demo: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"ERROR durante el seed demo: {exc}", file=sys.stderr)
+        return 1
+
+    print(
+        "[OK] Seed demo: "
+        f"admin={demo.admin_estado} "
+        f"conductor={demo.conductor_estado} "
+        f"vehiculo={demo.vehiculo_estado} "
+        f"proveedor={demo.proveedor_estado} "
+        f"asignacion={demo.asignacion_estado}"
+    )
+    print("--- SEED LOCAL COMPLETADO CON EXITO ---")
+    return 0
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
