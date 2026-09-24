@@ -17,12 +17,19 @@ branch_labels = None
 depends_on = None
 
 
+def _columna_existe(tabla: str, columna: str) -> bool:
+    inspector = sa.inspect(op.get_bind())
+    return columna in [item["name"] for item in inspector.get_columns(tabla)]
+
+
 def upgrade() -> None:
-    op.add_column(
-        "flypass_transacciones",
-        sa.Column("raw_data", postgresql.JSONB(), nullable=True),
-    )
+    if not _columna_existe("flypass_transacciones", "raw_data"):
+        op.add_column(
+            "flypass_transacciones",
+            sa.Column("raw_data", postgresql.JSONB(), nullable=True),
+        )
 
 
 def downgrade() -> None:
-    op.drop_column("flypass_transacciones", "raw_data")
+    if _columna_existe("flypass_transacciones", "raw_data"):
+        op.drop_column("flypass_transacciones", "raw_data")
