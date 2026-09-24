@@ -1,7 +1,6 @@
 import sys
 import os
 import uuid
-from datetime import datetime, timezone
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -32,8 +31,24 @@ def main():
     db = SessionLocal()
     km_antes = None
     vehiculo_id = None
+    tokens_antes = set()
     try:
-        veh = db.query(Vehiculo).filter(Vehiculo.estado == "activo").first() or db.query(Vehiculo).first()
+        admin = db.query(UsuarioModel).filter(UsuarioModel.correo == "test@celr.com").first()
+        if admin:
+            tokens_antes = {
+                token.id
+                for token in db.query(RefreshToken)
+                .filter(RefreshToken.usuario_id == admin.id)
+                .all()
+            }
+        # order_by(id) para determinismo entre corridas; sin el, PostgreSQL puede devolver cualquier vehiculo activo.
+        veh = (
+            db.query(Vehiculo)
+            .filter(Vehiculo.estado == "activo")
+            .order_by(Vehiculo.id)
+            .first()
+            or db.query(Vehiculo).order_by(Vehiculo.id).first()
+        )
         assert veh is not None, "No hay vehiculos en la BD"
         vehiculo_id = veh.id
         km_antes = float(veh.km_actual or 0)
@@ -41,7 +56,8 @@ def main():
         db.close()
     print(f"  usando vehiculo_id={vehiculo_id} km_actual={km_antes}")
 
-    inicio = datetime.now(timezone.utc)
+    # num_factura único por corrida evita colisiones de hash_comprobante contra gastos históricos (activos o soft-deleted) con misma fecha y monto.
+    run_tag = uuid.uuid4().hex[:8]
     headers = login()
     suf_int = int(uuid.uuid4().hex[:8], 16)
 
@@ -62,7 +78,8 @@ def main():
             "ciudad_abastecimiento": "Bogota",
             "asumido_por": "empresa",
             "responsable_pago": "conductor",
-            "tiene_num_factura": False,
+            "num_factura": f"TEST-COMB-{run_tag}",
+            "tiene_num_factura": True,
         })
         creados.append(g1["id"])
         print(f"  G1 consistente -> gasto_id={g1['id']} estado={g1['estado_validacion']}")
@@ -88,7 +105,8 @@ def main():
             "km_registro": km_despues + 1.0,
             "asumido_por": "empresa",
             "responsable_pago": "conductor",
-            "tiene_num_factura": False,
+            "num_factura": f"TEST-COMB-{run_tag}",
+            "tiene_num_factura": True,
         })
         creados.append(g2["id"])
         print(f"  G2 inconsistencia aritmetica -> gasto_id={g2['id']} estado={g2['estado_validacion']}")
@@ -108,7 +126,8 @@ def main():
             "km_registro": km_tras_g2 - 5.0,
             "asumido_por": "empresa",
             "responsable_pago": "conductor",
-            "tiene_num_factura": False,
+            "num_factura": f"TEST-COMB-{run_tag}",
+            "tiene_num_factura": True,
         })
         creados.append(g3["id"])
         print(f"  G3 km inferior -> gasto_id={g3['id']} estado={g3['estado_validacion']}")
@@ -153,7 +172,7 @@ def main():
             if admin:
                 db2.query(RefreshToken).filter(
                     RefreshToken.usuario_id == admin.id,
-                    RefreshToken.creado_en >= inicio,
+                    RefreshToken.id.notin_(tokens_antes),
                 ).delete(synchronize_session=False)
             db2.commit()
         except Exception:
