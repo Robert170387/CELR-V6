@@ -333,7 +333,7 @@ def downgrade() -> None:
         if _columna_existe("liquidaciones_conductores", columna):
             op.drop_column("liquidaciones_conductores", columna)
     if _vista_existe("v_odt_resumen"):
-        op.drop_view("v_odt_resumen")
+        op.execute(text("DROP VIEW IF EXISTS v_odt_resumen"))
     # Ahora si se pueden dropear las columnas regulares nuevas
     for col in ("comisiones_total", "total_viajes", "viajes_urbanos", "viajes_nacionales",
                 "retiros_tarjeta_anticipos", "descuento_salud_pension", "papeleria",
