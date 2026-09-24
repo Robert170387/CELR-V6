@@ -1,6 +1,8 @@
 import os
+import re
 import sys
 import uuid
+import zipfile
 from datetime import date
 from decimal import Decimal
 from io import BytesIO
@@ -17,6 +19,7 @@ from app.models.financiero import FlypassTransaccion
 from app.models.flota import Conductor, Usuario as UsuarioModel, Vehiculo
 from app.models.operaciones import Gasto, Proveedor, ViajeODT
 from app.services.operaciones import recalcular_viaje
+from app.services.flypass_import import importar_excel_flypass
 from _test_helpers import capturar_token_ids, limpiar_tokens_nuevos
 
 HEADERS = [
@@ -72,6 +75,30 @@ def workbook_bytes(filas: list[list], headers: list[str] | None = None) -> bytes
     salida = BytesIO()
     libro.save(salida)
     libro.close()
+    return salida.getvalue()
+
+
+def workbook_bytes_con_dimension_falsa(
+    filas: list[list], headers: list[str] | None = None
+) -> bytes:
+    """Genera un XLSX válido con dimension XML falsamente limitada a A1."""
+    salida_normal = workbook_bytes(filas, headers)
+    entrada = BytesIO(salida_normal)
+    salida = BytesIO()
+    with zipfile.ZipFile(entrada, "r") as zip_entrada:
+        with zipfile.ZipFile(salida, "w", zipfile.ZIP_DEFLATED) as zip_salida:
+            for item in zip_entrada.infolist():
+                data = zip_entrada.read(item.filename)
+                if item.filename == "xl/worksheets/sheet1.xml":
+                    texto = data.decode("utf-8")
+                    texto = re.sub(
+                        r"<dimension[^>]*/>",
+                        '<dimension ref="A1"/>',
+                        texto,
+                        count=1,
+                    )
+                    data = texto.encode("utf-8")
+                zip_salida.writestr(item, data)
     return salida.getvalue()
 
 
@@ -381,6 +408,56 @@ def main() -> int:
         flypass_ids.append(fila_raw.id)
         gasto_ids.append(fila_raw.gasto_id)
         print("  TF8 OK")
+
+        print("\n=== TF9: XLSX con dimension XML falsa ===")
+        contenido_dimension_falsa = workbook_bytes_con_dimension_falsa(
+            [
+                fila_excel(
+                    f"FLYTEST-{sufijo}-10",
+                    vehiculo.placa,
+                    date(2026, 10, 1),
+                    "10203.45",
+                )
+            ]
+        )
+        reporte = importar_excel_flypass(
+            db, contenido_dimension_falsa, "dimension-falsa.xlsx"
+        )
+        assert reporte["insertados"] == 1, reporte
+        assert reporte["errores"] == [], reporte
+        fila_dimension = db.query(FlypassTransaccion).filter(
+            FlypassTransaccion.num_transaccion_flypass == f"FLYTEST-{sufijo}-10"
+        ).one()
+        assert fila_dimension.vehiculo_id == vehiculo.id
+        assert fila_dimension.valor == Decimal("10203.45")
+        flypass_ids.append(fila_dimension.id)
+        if fila_dimension.gasto_id:
+            gasto_ids.append(fila_dimension.gasto_id)
+        print("  TF9 OK")
+
+        print("\n=== TF10: mensaje lista columnas encontradas ===")
+        headers_invalidos = [h for h in HEADERS if h != "TRANSACCION"]
+        contenido_invalido = workbook_bytes(
+            [
+                fila_excel(
+                    f"FLYTEST-{sufijo}-11",
+                    vehiculo.placa,
+                    date(2026, 10, 2),
+                    "11203.45",
+                )
+            ],
+            headers=headers_invalidos,
+        )
+        try:
+            importar_excel_flypass(db, contenido_invalido, "invalido.xlsx")
+        except ValueError as exc:
+            mensaje = str(exc)
+            assert "TRANSACCION" in mensaje, mensaje
+            assert "Columnas encontradas:" in mensaje, mensaje
+            assert "PLACA" in mensaje, mensaje
+        else:
+            raise AssertionError("Se esperaba ValueError por headers faltantes")
+        print("  TF10 OK")
 
         print("\n[TODOS LOS TESTS FLYPASS IMPORT PASARON]")
         return 0

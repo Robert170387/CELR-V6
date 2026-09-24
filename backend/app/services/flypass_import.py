@@ -189,7 +189,10 @@ def _parsear_fila(
 def _parsear_libro(contenido: bytes) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Valida la estructura y devuelve filas válidas y diagnósticos por fila."""
     try:
-        libro = load_workbook(BytesIO(contenido), read_only=True, data_only=True)
+        # read_only=False a propósito: algunos XLSX declaran <dimension ref="A1"/>
+        # aunque contienen el rango real. En read_only, openpyxl confía en esa
+        # metadata y expone solo la primera celda; el modo normal recorre la hoja.
+        libro = load_workbook(BytesIO(contenido), read_only=False, data_only=True)
     except Exception as exc:
         raise ValueError(f"No se pudo leer el archivo .xlsx: {exc}") from exc
 
@@ -216,7 +219,10 @@ def _parsear_libro(contenido: bytes) -> tuple[list[dict[str, Any]], list[dict[st
 
         faltan = sorted(CABECERAS_REQUERIDAS - vistos)
         if faltan:
-            raise ValueError("Faltan columnas requeridas: " + ", ".join(faltan))
+            raise ValueError(
+                f"Faltan columnas requeridas: {', '.join(faltan)}. "
+                f"Columnas encontradas: {', '.join(sorted(vistos))}"
+            )
 
         indices = {
             normalizado: indice
