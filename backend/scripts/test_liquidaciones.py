@@ -14,6 +14,7 @@ from app.models.operaciones import ViajeODT, Gasto
 from app.models.financiero import FlypassTransaccion, Ingreso, LiquidacionConductor
 from app.schemas.liquidacion import LiquidacionCreate
 from app.services.operaciones import recalcular_viaje
+from _test_helpers import capturar_token_ids, limpiar_tokens_nuevos
 
 
 def seed(db: Session):
@@ -382,7 +383,8 @@ def test_cerrar_liquidacion(db: Session, viaje_id: int, cond_id: int, veh_id: in
 def main():
     print("Iniciando prueba de liquidaciones CELR v6...")
     db = SessionLocal()
-    inicio = datetime.now(timezone.utc)
+    tokens_antes_test = capturar_token_ids(db, "test@celr.com")
+    tokens_antes_admin2 = capturar_token_ids(db, "admin2@celr.com")
     viajes_creados = []
     flypass_creados = []
     try:
@@ -451,8 +453,11 @@ def main():
                 db.query(Ingreso).filter(Ingreso.viaje_id.in_(via_ids)).delete(synchronize_session=False)
                 db.query(Gasto).filter(Gasto.viaje_id.in_(via_ids)).delete(synchronize_session=False)
                 db.query(ViajeODT).filter(ViajeODT.id.in_(via_ids)).delete(synchronize_session=False)
+            limpiar_tokens_nuevos(db, "admin2@celr.com", tokens_antes_admin2)
             admin2 = db.query(UsuarioModel).filter(UsuarioModel.correo == "admin2@celr.com").first()
             if admin2:
+                # El usuario temporal se elimina; también se limpian tokens viejos
+                # de una corrida anterior que pudieran haber quedado.
                 db.query(RefreshToken).filter(RefreshToken.usuario_id == admin2.id).delete(
                     synchronize_session=False
                 )
@@ -465,18 +470,14 @@ def main():
                     )
                 ).delete(synchronize_session=False)
                 db.delete(admin2)
-            admin = db.query(UsuarioModel).filter(UsuarioModel.correo == "test@celr.com").first()
-            if admin:
-                db.query(RefreshToken).filter(
-                    RefreshToken.usuario_id == admin.id,
-                    RefreshToken.creado_en >= inicio,
-                ).delete(synchronize_session=False)
+            limpiar_tokens_nuevos(db, "test@celr.com", tokens_antes_test)
             db.commit()
         except Exception as e:
             print(f"\n[CLEANUP ERROR]: {e}")
             import traceback
             traceback.print_exc()
             db.rollback()
+            raise
         db.close()
 
 

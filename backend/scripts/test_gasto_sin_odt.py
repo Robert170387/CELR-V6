@@ -1,15 +1,15 @@
 import sys
 import os
 import uuid
-from datetime import datetime, timezone
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from fastapi.testclient import TestClient
 from app.main import app
 from app.db.session import SessionLocal
-from app.models.flota import Vehiculo, RefreshToken, Usuario as UsuarioModel
+from app.models.flota import Vehiculo, Usuario as UsuarioModel
 from app.models.operaciones import Gasto
+from _test_helpers import capturar_token_ids, limpiar_tokens_nuevos
 
 CLIENT = TestClient(app)
 
@@ -17,8 +17,8 @@ CLIENT = TestClient(app)
 def main():
     print("Smoke test: gasto SIN ODT (Gasto Fijo / Mantenimiento)")
     suf = None
-    inicio = datetime.now(timezone.utc)
     db = SessionLocal()
+    tokens_antes_test = capturar_token_ids(db, "test@celr.com")
     try:
         veh = db.query(Vehiculo).first()
         assert veh is not None, "No hay vehiculos en la BD"
@@ -86,15 +86,11 @@ def main():
                 db2.query(Gasto).filter(Gasto.num_factura == f"SF-{suf}").delete(
                     synchronize_session=False
                 )
-                admin = db2.query(UsuarioModel).filter(UsuarioModel.correo == "test@celr.com").first()
-                if admin:
-                    db2.query(RefreshToken).filter(
-                        RefreshToken.usuario_id == admin.id,
-                        RefreshToken.creado_en >= inicio,
-                    ).delete(synchronize_session=False)
+                limpiar_tokens_nuevos(db2, "test@celr.com", tokens_antes_test)
                 db2.commit()
             except Exception:
                 db2.rollback()
+                raise
             finally:
                 db2.close()
 

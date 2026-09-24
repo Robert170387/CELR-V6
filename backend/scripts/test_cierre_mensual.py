@@ -1,6 +1,6 @@
 import sys
 import os
-from datetime import datetime, date, timezone
+from datetime import date
 from decimal import Decimal
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -11,6 +11,7 @@ from app.models.flota import Vehiculo, Conductor, Usuario as UsuarioModel
 from app.models.operaciones import ViajeODT
 from app.models.financiero import LiquidacionConductor
 from app.services.operaciones import recalcular_viaje
+from _test_helpers import capturar_token_ids, limpiar_tokens_nuevos
 
 
 def seed(db: Session):
@@ -341,7 +342,8 @@ def main():
     print("Iniciando prueba de cierre mensual B2 (CELR v6)...")
     db = SessionLocal()
     viajes_creados = []
-    inicio = datetime.now(timezone.utc)
+    tokens_antes_test = capturar_token_ids(db, "test@celr.com")
+    tokens_antes_admin2 = capturar_token_ids(db, "admin2@celr.com")
     admin = None
     try:
         admin = db.query(UsuarioModel).filter(UsuarioModel.correo == "test@celr.com").first()
@@ -411,12 +413,12 @@ def main():
             if via_ids:
                 db.query(ViajeODT).filter(ViajeODT.id.in_(via_ids)).delete(synchronize_session=False)
             if admin is not None:
-                db.query(RefreshToken).filter(
-                    RefreshToken.usuario_id == admin.id,
-                    RefreshToken.creado_en >= inicio,
-                ).delete(synchronize_session=False)
+                limpiar_tokens_nuevos(db, "test@celr.com", tokens_antes_test)
+            limpiar_tokens_nuevos(db, "admin2@celr.com", tokens_antes_admin2)
             admin2 = db.query(UsuarioModel).filter(UsuarioModel.correo == "admin2@celr.com").first()
             if admin2:
+                # El usuario temporal se elimina; también se limpian tokens viejos
+                # de una corrida anterior que pudieran haber quedado.
                 db.query(RefreshToken).filter(RefreshToken.usuario_id == admin2.id).delete(synchronize_session=False)
                 db.query(LiquidacionConductor).filter(
                     (LiquidacionConductor.creado_por == admin2.id) |
@@ -429,6 +431,7 @@ def main():
             import traceback
             traceback.print_exc()
             db.rollback()
+            raise
         db.close()
 
 

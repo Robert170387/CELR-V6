@@ -11,7 +11,7 @@ import os
 import sys
 import hashlib
 from decimal import Decimal
-from datetime import date, datetime, timezone
+from datetime import date
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -23,7 +23,6 @@ from app.core.security import hash_password
 from app.models.flota import (
     Vehiculo,
     Conductor,
-    RefreshToken,
     Usuario as UsuarioModel,
 )
 from app.models.operaciones import Gasto, ViajeODT
@@ -37,6 +36,7 @@ from app.services.ocr_parser import (
     find_valor_total,
 )
 from app.services.ocr_service import compute_logical_hash, process_receipt_image
+from _test_helpers import capturar_token_ids, limpiar_tokens_nuevos
 
 RECIBO = """ESTACION DE SERVICIO EL PRADO S.A.S
 NIT: 900.123.456-7
@@ -322,7 +322,7 @@ def test_scan_receipt_manual_fallback():
 def main():
     print("Iniciando pruebas de OCR/visión CELR v6 (Tesseract + hash lógico)...")
     db = SessionLocal()
-    inicio = datetime.now(timezone.utc)
+    tokens_antes_test = capturar_token_ids(db, "test@celr.com")
     try:
         test_parse_money()
         test_parse_date()
@@ -338,15 +338,11 @@ def main():
         # corrida (los viajes/gastos del OCR ya se limpian dentro de cada test).
         # Nunca se borra test@celr.com ni el seed (SKN756 / cédula 12345678).
         try:
-            admin = db.query(UsuarioModel).filter(UsuarioModel.correo == "test@celr.com").first()
-            if admin:
-                db.query(RefreshToken).filter(
-                    RefreshToken.usuario_id == admin.id,
-                    RefreshToken.creado_en >= inicio,
-                ).delete(synchronize_session=False)
+            limpiar_tokens_nuevos(db, "test@celr.com", tokens_antes_test)
             db.commit()
         except Exception:
             db.rollback()
+            raise
         db.close()
 
 

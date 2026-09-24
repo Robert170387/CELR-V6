@@ -1,6 +1,5 @@
 import sys
 import os
-from datetime import date, datetime, timezone
 from decimal import Decimal
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -9,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.db.session import SessionLocal
 from app.models.flota import Vehiculo, Conductor, RefreshToken, Usuario as UsuarioModel
 from app.core.security import hash_password, verify_password, create_access_token, decode_access_token
+from _test_helpers import capturar_token_ids, limpiar_tokens_nuevos
 
 
 def seed_usuario(db: Session):
@@ -125,7 +125,6 @@ def test_refresh_flow():
     print("\n=== Test 5: POST /api/v1/auth/refresh (rotacion) ===")
     from fastapi.testclient import TestClient
     from app.main import app
-    from app.models.flota import RefreshToken
     client = TestClient(app)
 
     r = client.post("/api/v1/auth/login", json={"correo": "test@celr.com", "contrasena": "admin123"})
@@ -259,7 +258,8 @@ def test_cambio_contrasena_y_rate_limit():
 def main():
     print("Iniciando prueba de autenticacion JWT CELR v6...")
     db = SessionLocal()
-    inicio = datetime.now(timezone.utc)
+    tokens_antes_test = capturar_token_ids(db, "test@celr.com")
+    tokens_antes_ratelimit = capturar_token_ids(db, "ratelimit@celr.com")
     try:
         usuario = seed_usuario(db)
         test_hash_password()
@@ -278,21 +278,20 @@ def main():
         # Orden inverso de FK: refresh_tokens antes que usuarios (FK sin CASCADE).
         # Nunca se borra test@celr.com (usuario semilla del stack).
         try:
+            limpiar_tokens_nuevos(db, "ratelimit@celr.com", tokens_antes_ratelimit)
             rl = db.query(UsuarioModel).filter(UsuarioModel.correo == "ratelimit@celr.com").first()
             if rl:
+                # El usuario temporal se elimina; también se limpian tokens viejos
+                # de una corrida anterior que pudieran haber quedado.
                 db.query(RefreshToken).filter(RefreshToken.usuario_id == rl.id).delete(
                     synchronize_session=False
                 )
                 db.delete(rl)
-            admin = db.query(UsuarioModel).filter(UsuarioModel.correo == "test@celr.com").first()
-            if admin:
-                db.query(RefreshToken).filter(
-                    RefreshToken.usuario_id == admin.id,
-                    RefreshToken.creado_en >= inicio,
-                ).delete(synchronize_session=False)
+            limpiar_tokens_nuevos(db, "test@celr.com", tokens_antes_test)
             db.commit()
         except Exception:
             db.rollback()
+            raise
         db.close()
 
 

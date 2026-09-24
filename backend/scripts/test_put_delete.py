@@ -1,6 +1,6 @@
 import sys
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -11,6 +11,7 @@ from app.models.flota import Usuario as UsuarioModel, Vehiculo, Conductor, Refre
 from app.models.operaciones import ViajeODT, Gasto, Proveedor
 from app.models.financiero import Ingreso
 from app.core.security import hash_password
+from _test_helpers import capturar_token_ids, limpiar_tokens_nuevos
 
 CLIENT = TestClient(app)
 
@@ -43,8 +44,15 @@ def delete(url, headers, esperado=204):
 
 def main():
     suf = datetime.now().strftime("%H%M%S%f")
-    inicio = datetime.now(timezone.utc)
     print("Iniciando prueba CRUD PUT/DELETE CELR v6...")
+
+    snapshot_db = SessionLocal()
+    try:
+        tokens_antes_test = capturar_token_ids(snapshot_db, "test@celr.com")
+        tokens_antes_cliente = capturar_token_ids(snapshot_db, f"cli-{suf}@celr.com")
+        tokens_antes_conductor = capturar_token_ids(snapshot_db, f"cond-{suf}@celr.com")
+    finally:
+        snapshot_db.close()
 
     headers = login()
     creados = {"vehi": [], "cond": [], "prov": [], "viaje": [], "gasto": [], "ingreso": []}
@@ -167,18 +175,19 @@ def main():
                 db.query(Gasto).filter(Gasto.id.in_(creados["gasto"])).delete(synchronize_session=False)
             db.query(ViajeODT).filter(ViajeODT.id.in_(creados["viaje"])).delete(synchronize_session=False)
             # refresh_tokens primero (FK sin CASCADE) antes de borrar los usuarios
-            for correo_u in (f"cli-{suf}@celr.com", f"cond-{suf}@celr.com"):
+            for correo_u, tokens_antes in (
+                (f"cli-{suf}@celr.com", tokens_antes_cliente),
+                (f"cond-{suf}@celr.com", tokens_antes_conductor),
+            ):
+                limpiar_tokens_nuevos(db, correo_u, tokens_antes)
                 u = db.query(UsuarioModel).filter(UsuarioModel.correo == correo_u).first()
                 if u:
+                    # El usuario temporal se elimina; también se limpian tokens viejos
+                    # de una corrida anterior que pudieran haber quedado.
                     db.query(RefreshToken).filter(RefreshToken.usuario_id == u.id).delete(
                         synchronize_session=False
                     )
-            admin = db.query(UsuarioModel).filter(UsuarioModel.correo == "test@celr.com").first()
-            if admin:
-                db.query(RefreshToken).filter(
-                    RefreshToken.usuario_id == admin.id,
-                    RefreshToken.creado_en >= inicio,
-                ).delete(synchronize_session=False)
+            limpiar_tokens_nuevos(db, "test@celr.com", tokens_antes_test)
             db.query(UsuarioModel).filter(
                 UsuarioModel.correo.in_([f"cli-{suf}@celr.com", f"cond-{suf}@celr.com"])
             ).delete(synchronize_session=False)
@@ -188,6 +197,7 @@ def main():
             db.commit()
         except Exception:
             db.rollback()
+            raise
         db.close()
 
 

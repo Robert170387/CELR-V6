@@ -7,8 +7,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from fastapi.testclient import TestClient
 from app.main import app
 from app.db.session import SessionLocal
-from app.models.flota import Vehiculo, RefreshToken, Usuario as UsuarioModel
+from app.models.flota import Vehiculo, Usuario as UsuarioModel
 from app.models.operaciones import Gasto
+from _test_helpers import capturar_token_ids, limpiar_tokens_nuevos
 
 CLIENT = TestClient(app)
 FECHA = "2026-09-17"
@@ -31,16 +32,8 @@ def main():
     db = SessionLocal()
     km_antes = None
     vehiculo_id = None
-    tokens_antes = set()
+    tokens_antes_test = capturar_token_ids(db, "test@celr.com")
     try:
-        admin = db.query(UsuarioModel).filter(UsuarioModel.correo == "test@celr.com").first()
-        if admin:
-            tokens_antes = {
-                token.id
-                for token in db.query(RefreshToken)
-                .filter(RefreshToken.usuario_id == admin.id)
-                .all()
-            }
         # order_by(id) para determinismo entre corridas; sin el, PostgreSQL puede devolver cualquier vehiculo activo.
         veh = (
             db.query(Vehiculo)
@@ -168,15 +161,11 @@ def main():
             veh = db2.query(Vehiculo).filter(Vehiculo.id == vehiculo_id).first()
             if veh is not None and km_antes is not None:
                 veh.km_actual = km_antes
-            admin = db2.query(UsuarioModel).filter(UsuarioModel.correo == "test@celr.com").first()
-            if admin:
-                db2.query(RefreshToken).filter(
-                    RefreshToken.usuario_id == admin.id,
-                    RefreshToken.id.notin_(tokens_antes),
-                ).delete(synchronize_session=False)
+            limpiar_tokens_nuevos(db2, "test@celr.com", tokens_antes_test)
             db2.commit()
         except Exception:
             db2.rollback()
+            raise
         finally:
             db2.close()
 

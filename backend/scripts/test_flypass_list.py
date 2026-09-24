@@ -12,9 +12,10 @@ from sqlalchemy.orm import Session
 from app.db.session import SessionLocal
 from app.main import app
 from app.models.financiero import FlypassTransaccion
-from app.models.flota import Conductor, RefreshToken, Usuario as UsuarioModel, Vehiculo
+from app.models.flota import Conductor, Usuario as UsuarioModel, Vehiculo
 from app.models.operaciones import Gasto, ViajeODT
 from app.services.operaciones import recalcular_viaje
+from _test_helpers import capturar_token_ids, limpiar_tokens_nuevos
 
 
 def crear_vehiculo(db: Session, placa: str) -> Vehiculo:
@@ -141,7 +142,7 @@ def ids(respuesta: dict) -> list[str]:
 def main() -> int:
     print("Iniciando pruebas del listado Flypass CELR v6...")
     db = SessionLocal()
-    inicio = datetime.now(timezone.utc)
+    tokens_antes_test = capturar_token_ids(db, "test@celr.com")
     sufijo = uuid.uuid4().hex
     flypass_ids: list[int] = []
     gasto_ids: list[int] = []
@@ -284,14 +285,7 @@ def main() -> int:
                 cleanup.query(Vehiculo).filter(Vehiculo.id.in_(vehiculo_ids)).delete(
                     synchronize_session=False
                 )
-            admin = cleanup.query(UsuarioModel).filter(
-                UsuarioModel.correo == "test@celr.com"
-            ).first()
-            if admin:
-                cleanup.query(RefreshToken).filter(
-                    RefreshToken.usuario_id == admin.id,
-                    RefreshToken.creado_en >= inicio,
-                ).delete(synchronize_session=False)
+            limpiar_tokens_nuevos(cleanup, "test@celr.com", tokens_antes_test)
             cleanup.commit()
         except Exception:
             cleanup.rollback()
