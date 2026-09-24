@@ -65,6 +65,21 @@ docker compose build backend
 docker compose up -d --force-recreate backend
 ```
 
+## Importación Flypass
+
+El endpoint `POST /api/v1/flypass/import` recibe un archivo multipart `file` en formato
+`.xlsx` (máximo 5 MB) y está protegido con los roles financieros de la API. La primera hoja
+debe contener los encabezados `TRANSACCION`, `PLACA`, `FECHA_MVTO`, `MONTO` y
+`PUNTO ATENCION`.
+
+El importador conserva la fila completa en `flypass_transacciones.raw_data`, evita duplicados
+por `TRANSACCION`, resuelve la placa, y hace matching de gastos `peajes` por vehículo, valor
+y fecha ±1 día. Si no hay match, crea el gasto con `estado_pago=pendiente_por_pagar`,
+`metodo_pago=tag` y proveedor `Flypass`; al setear `gasto_id` la transacción queda legalizada.
+La asociación a una ODT es best-effort por vehículo y rango de fechas. La respuesta incluye
+el reporte de insertados, duplicados, sin placa, ambiguos, gastos creados/matcheados, sin ODT
+y errores.
+
 ## Ejecutar el servidor
 ```
 set DATABASE_URL=postgresql://postgres:admin@localhost:5433/celr_v6_db

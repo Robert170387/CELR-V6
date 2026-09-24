@@ -47,6 +47,7 @@ No pytest. Two suites, both against the real DB/server — they leave test data 
 - `backend/scripts/test_*.py` — hit the real `celr_v6_db`. Run with `set PYTHONPATH=.` and `DATABASE_URL` set, from `backend/`:
   `venv\Scripts\python.exe scripts/test_auth.py` (also: `test_rbac`, `test_liquidaciones`, `test_gasto_sin_odt`, `test_gasto_combustible`, `test_put_delete`, `test_ocr`, `test_endpoints`, `verify_models`)
 - `scripts/e2e_flow_test.py` — against a **running server**; set `CELR_BASE_URL` (default `http://localhost:8000`; use `http://localhost:8001` for the Docker backend).
+- La lista completa de suites y gates está centralizada en `INSTRUCCIONES_OPENCODE.md` §3; incluye `test_flypass_import.py` (TF1–TF8).
 
 Credentials: `test@celr.com` / `admin123` (admin), `cliente@celr.com` / `cliente123` (cliente). Seed admin starts with `debe_cambiar_contrasena=True` (first login is forced through `/cambiar-contrasena`).
 

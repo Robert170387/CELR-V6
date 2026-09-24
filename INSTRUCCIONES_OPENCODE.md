@@ -19,11 +19,12 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 
 ## 3. Gates antes de commitear
 
-1. **Backend:** las **9** suites `backend/scripts/test_*.py` en verde (desde `backend/`, con
+1. **Backend:** las **10** suites `backend/scripts/test_*.py` en verde (desde `backend/`, con
    `PYTHONPATH=.` y `DATABASE_URL` → `:5433`), con el venv:
    `venv\Scripts\python.exe scripts\test_<suite>.py` — los scripts imprimen checks `✓`/`✗`;
    bajo pipe en Windows ejecutar con `$env:PYTHONIOENCODING="utf-8"` (cp1252 rompe esos
-   caracteres). `test_cierre_mensual.py` es la suite de la FASE B2.
+   caracteres). `test_cierre_mensual.py` es la suite de la FASE B2 y
+   `test_flypass_import.py` cubre TF1–TF8.
 2. **Humo:** `venv\Scripts\python.exe scripts\smoke.py` → `[SMOKE OK]`.
 3. **E2E** (servidor vivo, p. ej. Docker `:8001`):
    `$env:CELR_BASE_URL="http://localhost:8001"; $env:PYTHONUTF8="1";
@@ -89,6 +90,12 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
   “Finalizada” del brief y `liquidado` queda pendiente de decisión de negocio; ver B6 en
   `ALINEACION_MODELO_NEGOCIO.md` §6.
 
+- **Trampa — startup Docker:** después de `docker compose up -d --force-recreate backend`,
+  esperar 5–10 s o verificar que el health endpoint responda `200` antes de correr el E2E.
+  Sin esa espera, el primer intento puede fallar con `Connection refused` por la race de startup.
+- **Dependencia Excel:** `openpyxl==3.1.5` es la dependencia compartida para importadores
+  `.xlsx`; queda disponible para el importador Flypass y para futuros importadores bancarios.
+
 ## 5. Estado actual
 
 - Rama `main` y backup: **conteo vivo** con `git rev-list --count origin/main..HEAD` (fases mezcladas: FASE A2 + FASE 2 + docs 2.G + alineación ODT + FASE Gastos + FASE Liquidaciones + docs). No se pinea el número exacto aquí para evitar el off-by-one autoreferencial (ver `e474022`).
@@ -130,6 +137,12 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
   | 2 endpoints+tests | `61a56be` | `POST/GET /liquidaciones/cierre-mensual`, `POST /{id}/reabrir`, `POST /{id}/cancelar`, 409 en `/cerrar/{viaje_id}`; schemas `CierreMensualCreate/Response`; suite nueva `test_cierre_mensual.py` |
   | 3 UI frontend | `2131127` | `Liquidaciones.tsx`: «Cerrar mes» + «Meses cerrados» (Detalle/Reabrir/Cancelar); `api/index.ts` (`CierreMensual` + métodos). ⚠️ El commit (etiquetado `feat(frontend)`) arrastra el backend read-only `GET /cierres-mensuales` (soporte del listado) |
   | 4 docs | `8d72c3b` | Sección B2 en `ALINEACION_MODELO_NEGOCIO.md` §5 + pipeline/nota `PYTHONIOENCODING` aquí (§3) |
+
+- **FASE Flypass import cerrada (2026-09-23):**
+  | Sub-fase | Commit | Qué cambió |
+  |---|---|---|
+  | 1 — enforcement de cierre | `9e07857` | El cierre ODT bloquea Flypass pendiente; el componente saldo queda diferido como B6. |
+  | 2 — importador Excel | `d4736b7` | `openpyxl`, `raw_data` JSONB, matching/creación de gastos, auto-asociación ODT y suite TF1–TF8. |
 
 - **FASE Seeds (partición segura) cerrada (2026-09-23):**
   | Sub-fase | Commit | Qué cambió |
@@ -175,7 +188,7 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
    incorpora `now()`, aleatoriedad u orden no estable, el verificador debe subir a N=3 y comparar
    `estado_post-2 == estado_post-3`.
 
-## 8. Decisiones B1–B5 — preguntas al próximo consultor/agente
+## 8. Decisiones B1–B6 — preguntas al próximo consultor/agente
 
 Decisiones de negocio/arquitectura que quedan **abiertas**; no son decidibles por el agente. El
 consultor previo dejó el marco; quien retome el proyecto debe cerrarlas con el usuario:
@@ -186,10 +199,12 @@ consultor previo dejó el marco; quien retome el proyecto debe cerrarlas con el 
 | **B3** | ¿Refresh token a cookie `HttpOnly`? | **Rompe el offline del PWA.** Trade-off explícito. |
 | **B4** | ¿Rate limiter distribuido? | Redis o tabla DB → **migración** + infra. Solo multi-instancia. |
 | **B5** | ¿OCR Google Vision o Tesseract local? | Código comentado; activar = dependencia cloud + credenciales. |
+| **B6** | ¿Qué significa cerrar operativamente una ODT y cuándo puede hacerse sin saldo cubierto? | Regla 4: no forzar saldo; Flypass sí. Ver `ALINEACION_MODELO_NEGOCIO.md` §6. |
 
 > **B2 quedó resuelta (2026-09-23):** persiste el cierre mensual COMPENSADO_RC con **Opción 1**
 > (reforzar `liquidaciones_conductores`, D5-c → 409 preventivo, reabrir/cancelar con rastro). Ver
 > FASE B2 en §5 y `ALINEACION_MODELO_NEGOCIO.md` §5.
 
 Prioridad actual: de las restantes, **B3 y B4** son deuda de seguridad/arquitectura al escalar;
-**B1** y **B5** cuando surja la necesidad.
+**B1** y **B5** cuando surja la necesidad. **B6** requiere decisión de negocio antes de
+forzar el componente saldo de la Regla 4.
