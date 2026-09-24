@@ -5,6 +5,7 @@ psycopg2-binary
 pydantic-settings
 python-dotenv
 python-multipart
+openpyxl==3.1.5
 python-jose[cryptography]
 passlib[bcrypt]
 alembic

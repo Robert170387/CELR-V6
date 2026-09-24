@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Numeric, Boolean, Date, ForeignKey, Text, DateTime, Computed, CheckConstraint
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.sql import func
 from app.db.base_class import Base
 
@@ -127,5 +127,7 @@ class FlypassTransaccion(Base):
     gasto_id = Column(Integer, ForeignKey("gastos.id"))
     # FASE A2 — generada: la transaccion queda legalizada cuando se vincula a un gasto
     legalizado_en_gastos = Column(Boolean, Computed("(gasto_id IS NOT NULL)", persisted=True))
+    # FASE 2 — fila original del Excel para trazabilidad y auditoría
+    raw_data = Column(JSONB, nullable=True)
     estado = Column(String(20), nullable=False, default='importado')
     importado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
