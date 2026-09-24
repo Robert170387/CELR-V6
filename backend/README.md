@@ -31,6 +31,32 @@ python -m alembic revision -m "desc"        # nueva migración
 python -m alembic revision --autogenerate -m "desc"  # desde modelos (comparando con DB)
 ```
 
+### Baseline dinámico y guards idempotentes
+
+La migración baseline `a5b6b344c873` ejecuta `Base.metadata.create_all()` sobre los
+modelos actuales. En una BD vacía construye todo el schema vigente; por eso las
+migraciones posteriores deben ser idempotentes. Cada `add_column`, check, FK,
+`alter_column`, drop y creación de vista debe consultar el estado real antes de
+ejecutarse. Usar como referencia los guards de `f2e1d0c9b8a7` y
+`a1b2c3d4e5f6` (`_columna_existe`, `_constraint_existe`, `_fk_existe`,
+`_columna_es_nullable`, `_columna_es_generated`, `_vista_existe`).
+
+`alembic.op` no expone `op.drop_view` ni `op.create_view`. Para vistas usar
+`op.execute(text("DROP VIEW IF EXISTS ..."))` o
+`op.execute(text("CREATE ... VIEW ..."))`.
+
+Antes de commitear una migración, ejecutar desde `backend/`:
+
+```powershell
+$env:PYTHONPATH="."
+$env:DATABASE_URL="postgresql://postgres:admin@localhost:5433/celr_v6_db"
+venv\Scripts\python.exe scripts\test_fresh_db.py
+```
+
+El test crea y destruye únicamente `celr_v6_fresh_test`; nunca modifica
+`celr_v6_db`. Requiere PostgreSQL vivo en `:5433` y valida `upgrade head`,
+`downgrade base` y el segundo `upgrade head` (TM1–TM9).
+
 > ⚠️ **DEPRECADO**: `init_db.py` y `scripts/migrate_roles.py`,
 > `scripts/migrate_gastos_valor.py`, `scripts/migrate_gastos_viaje_nullable.py`,
 > `scripts/migrate_v6_hardening.py` quedan solo como referencia histórica.
@@ -95,8 +121,10 @@ venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
 ```
 
 ## Pruebas de la suite backend
-Cada script usa la BD real (`celr_v6_db`) y deja datos de prueba al final
-(borrado en lote no implementado):
+
+Las suites backend usan la BD real (`celr_v6_db`) y tienen limpieza propia al
+final. `test_fresh_db.py` es la excepción: crea y destruye únicamente
+`celr_v6_fresh_test`, sin tocar la BD real.
 ```
 set PYTHONPATH=.
 set DATABASE_URL=postgresql://postgres:admin@localhost:5433/celr_v6_db

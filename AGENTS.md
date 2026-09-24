@@ -28,6 +28,7 @@ python scripts/seed_municipios.py   # wrapper compatible del catálogo DIVIPOLA 
 ```
 
 - **Alembic is the official schema mechanism.** `init_db.py`, `schema_celr_v6.sql`, and `backend/scripts/migrate_*.py` are deprecated/historical — do not use them on new DBs. Baseline migration `a5b6b344c873` is `create_all` from models (no-op on existing DBs); real schema changes go in new migrations.
+- **Patrón y validación:** el baseline es dinámico; las migraciones nuevas deben usar guards de existencia y validarse con `backend/scripts/test_fresh_db.py`. La referencia completa está en `INSTRUCCIONES_OPENCODE.md` §4.
 - Endpoints autocomplete free-text city → municipio FK, so an empty `municipios` table breaks gastos/viajes. `docker compose` runs `alembic upgrade head && seed.py && scripts/seed_municipios.py` in that order — keep this boot order in mind.
 
 ## Frontend commands (from `frontend/`)
@@ -42,12 +43,14 @@ npm run build     # tsc -b && vite build — typecheck is part of build
 
 ## Tests
 
-No pytest. Two suites, both against the real DB/server — they leave test data behind (no batch cleanup):
+No pytest. Las suites backend usan la BD real; `test_fresh_db.py` es la excepción
+aislada y usa una BD desechable. Las demás suites tienen limpieza propia al final.
 
 - `backend/scripts/test_*.py` — hit the real `celr_v6_db`. Run with `set PYTHONPATH=.` and `DATABASE_URL` set, from `backend/`:
   `venv\Scripts\python.exe scripts/test_auth.py` (also: `test_rbac`, `test_liquidaciones`, `test_gasto_sin_odt`, `test_gasto_combustible`, `test_put_delete`, `test_ocr`, `test_endpoints`, `verify_models`)
+- `backend/scripts/test_fresh_db.py` — crea y destruye únicamente `celr_v6_fresh_test`; requiere PostgreSQL vivo en `:5433` y valida la cadena Alembic sin tocar `celr_v6_db`.
 - `scripts/e2e_flow_test.py` — against a **running server**; set `CELR_BASE_URL` (default `http://localhost:8000`; use `http://localhost:8001` for the Docker backend).
-- La lista completa de suites y gates está centralizada en `INSTRUCCIONES_OPENCODE.md` §3; incluye `test_flypass_import.py` (TF1–TF8).
+- La lista completa de **12 suites** y gates está centralizada en `INSTRUCCIONES_OPENCODE.md` §3; incluye `test_flypass_import.py` (TF1–TF8), `test_flypass_list.py` (TL1–TL9) y `test_fresh_db.py` (TM1–TM9).
 
 Credentials: `test@celr.com` / `admin123` (admin), `cliente@celr.com` / `cliente123` (cliente). Seed admin starts with `debe_cambiar_contrasena=True` (first login is forced through `/cambiar-contrasena`).
 

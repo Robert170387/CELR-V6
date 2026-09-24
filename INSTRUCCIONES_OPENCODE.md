@@ -19,12 +19,14 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 
 ## 3. Gates antes de commitear
 
-1. **Backend:** las **11** suites `backend/scripts/test_*.py` en verde (desde `backend/`, con
+1. **Backend:** las **12** suites `backend/scripts/test_*.py` en verde (desde `backend/`, con
    `PYTHONPATH=.` y `DATABASE_URL` → `:5433`), con el venv:
    `venv\Scripts\python.exe scripts\test_<suite>.py` — los scripts imprimen checks `✓`/`✗`;
    bajo pipe en Windows ejecutar con `$env:PYTHONIOENCODING="utf-8"` (cp1252 rompe esos
    caracteres). `test_cierre_mensual.py` es la suite de la FASE B2;
    `test_flypass_import.py` cubre TF1–TF8 y `test_flypass_list.py` cubre TL1–TL9.
+   `test_fresh_db.py` es la suite 12: crea y destruye `celr_v6_fresh_test` (nunca toca
+   `celr_v6_db`), requiere PostgreSQL vivo en `:5433` y valida TM1–TM9.
 2. **Humo:** `venv\Scripts\python.exe scripts\smoke.py` → `[SMOKE OK]`.
 3. **E2E** (servidor vivo, p. ej. Docker `:8001`):
    `$env:CELR_BASE_URL="http://localhost:8001"; $env:PYTHONUTF8="1";
@@ -51,6 +53,23 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
   `Can't locate revision identified by '...'` durante Alembic.
 - Migraciones: **Alembic es el mecanismo oficial** (`alembic upgrade head`). `init_db.py`,
   `schema_celr_v6.sql` y `backend/scripts/migrate_*.py`: históricos, NO usarlos en BD nuevas.
+
+### Migraciones idempotentes
+
+- **Baseline dinámico:** `a5b6b344c873` ejecuta `Base.metadata.create_all()` sobre los modelos
+  actuales. En una BD vacía crea todo el schema vigente; por eso las migraciones posteriores
+  deben ser idempotentes y no intentar agregar objetos que ya existan.
+- **Patrón obligatorio:** cada `add_column`, `create_check_constraint`, `create_foreign_key`,
+  `alter_column`, operación `drop_*` y creación de vista debe consultar el estado real antes de
+  ejecutarse. Usar helpers como `_columna_existe`, `_constraint_existe`, `_fk_existe`,
+  `_columna_es_nullable`, `_columna_es_generated` y `_vista_existe`; ver como referencia
+  `f2e1d0c9b8a7` y `a1b2c3d4e5f6`.
+- **Vistas:** `alembic.op` no expone `op.drop_view` ni `op.create_view`. Usar
+  `op.execute(text("DROP VIEW IF EXISTS ..."))` / `op.execute(text("CREATE ... VIEW ..."))`.
+- **Validación previa:** antes de commitear cualquier cambio de migración, ejecutar
+  `venv\Scripts\python.exe scripts\test_fresh_db.py` desde `backend/`. El test crea una BD
+  desechable, corre `upgrade head`, `downgrade base` y un segundo `upgrade head`, y detecta
+  fallos de `downgrade` que los gates sobre la BD existente no pueden ver.
 
 ### Partición de seeds
 
@@ -146,6 +165,14 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
   | 3 — listado backend | `cae6b1a` | `GET /api/v1/flypass` con filtros, paginación, JOIN de placa y suite TL1–TL9. |
   | 4 — UI de consulta/importación | `4aaedc8` | Página Flypass, importación, reporte, tabla, filtros, paginación y menú financiero. |
 
+- **FASE Alembic fresh DB — cerrada:**
+  | Sub-fase | Commit | Qué cambió |
+  |---|---|---|
+  | Guards simples | `07c0bdf` | `password_version` y `raw_data` idempotentes |
+  | B2 | `311173d` | guards de `f2e1d0c9b8a7` |
+  | A2 | `bfb76d7` | guards de `a1b2c3d4e5f6` |
+  | Fresh DB + fix colateral | `1315fe2` | `test_fresh_db.py`, TM1–TM9 y corrección de `DROP VIEW` en `downgrade()` |
+
 - **FASE Seeds (partición segura) cerrada (2026-09-23):**
   | Sub-fase | Commit | Qué cambió |
   |---|---|---|
@@ -190,6 +217,10 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
    incorpora `now()`, aleatoriedad u orden no estable, el verificador debe subir a N=3 y comparar
    `estado_post-2 == estado_post-3`.
 
+7. **Patrón de migraciones idempotentes:** toda migración nueva debe usar guards de existencia
+   para columnas, checks, FKs, nulabilidad, columnas generadas, vistas y drops. La validación
+   obligatoria es `test_fresh_db.py` antes de cualquier commit de migración.
+
 ## 8. Decisiones B1–B6 — preguntas al próximo consultor/agente
 
 Decisiones de negocio/arquitectura que quedan **abiertas**; no son decidibles por el agente. El
@@ -206,6 +237,13 @@ consultor previo dejó el marco; quien retome el proyecto debe cerrarlas con el 
 > **B2 quedó resuelta (2026-09-23):** persiste el cierre mensual COMPENSADO_RC con **Opción 1**
 > (reforzar `liquidaciones_conductores`, D5-c → 409 preventivo, reabrir/cancelar con rastro). Ver
 > FASE B2 en §5 y `ALINEACION_MODELO_NEGOCIO.md` §5.
+
+> **D-fk-names (deuda técnica cosmética):** en bases creadas por Alembic desde cero, algunas
+> FKs tienen doble nombre: la FK default `*_id_fkey` creada por `a5b6b344c873` mediante
+> `create_all()` y la FK nombrada `fk_*` agregada por A2 para la misma relación coexisten en el
+> primer ciclo; en el segundo ciclo queda solo la nombrada porque `create_all()` es no-op sobre
+> tablas existentes. La relación es idéntica y `test_fresh_db.py` la compara por firma semántica.
+> Opciones futuras: limpieza retroactiva, migración nueva o dejarlo documentado.
 
 Prioridad actual: de las restantes, **B3 y B4** son deuda de seguridad/arquitectura al escalar;
 **B1** y **B5** cuando surja la necesidad. **B6** requiere decisión de negocio antes de
