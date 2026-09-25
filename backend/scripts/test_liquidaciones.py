@@ -496,6 +496,7 @@ def main():
         print(f"\n[ERROR EN TESTS]: {e}")
         import traceback
         traceback.print_exc()
+        raise
     finally:
         # Limpieza 2.B: DELETE real en orden inverso de FK, solo lo creado por esta
         # corrida. Nunca borra el seed (test@celr.com, SKN756, conductor legacy 12345678).

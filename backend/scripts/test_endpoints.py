@@ -110,6 +110,7 @@ def main():
         print(f"\n[ERROR EN TESTS]: {e}")
         import traceback
         traceback.print_exc()
+        raise
     finally:
         # Limpieza 2.B: DELETE real del viaje y sus gastos creados por esta corrida.
         # El vehículo/conductor (SKN756 / cédula 12345678) se reutilizan del seed,
@@ -121,6 +122,7 @@ def main():
                 db.commit()
         except Exception:
             db.rollback()
+            raise  # propaga: fallo de cleanup no debe ocultarse
         db.close()
 
 

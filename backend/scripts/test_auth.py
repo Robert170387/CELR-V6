@@ -273,6 +273,7 @@ def main():
         print(f"\n[ERROR EN TESTS]: {e}")
         import traceback
         traceback.print_exc()
+        raise
     finally:
         # Limpieza 2.B: DELETE real solo de lo creado por esta corrida.
         # Orden inverso de FK: refresh_tokens antes que usuarios (FK sin CASCADE).

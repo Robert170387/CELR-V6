@@ -401,6 +401,7 @@ def main():
         print(f"\n[ERROR EN TESTS]: {e}")
         import traceback
         traceback.print_exc()
+        raise
     finally:
         try:
             from app.models.flota import RefreshToken
