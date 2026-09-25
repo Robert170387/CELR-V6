@@ -24,6 +24,51 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
 
 
+# --- Politica de contrasenas (A1) -------------------------------------------------
+# Alcance deliberado: se aplica al CAMBIO de contrasena (/auth/cambio-contrasena).
+# El login sigue aceptando las contrasenas historicas y la creacion de cuentas
+# todavia no la exige (eso llega en A2/A5 con la identidad por cedula).
+LONGITUD_MINIMA_CONTRASENA = 8
+
+CONTRASENAS_BLOQUEADAS = {
+    "admin123",
+    "12345678",
+    "password",
+    "contrasena",
+    "celr123",
+}
+
+
+def validar_politica_contrasena(
+    contrasena: str,
+    *,
+    cedula: Optional[str] = None,
+    correo: Optional[str] = None,
+) -> None:
+    """Lanza ValueError con mensaje en espanol si la contrasena no cumple la politica.
+
+    Reglas, en orden: no vacia, minimo 8 caracteres, distinta de la cedula,
+    distinta del correo, no esta en la lista de contrasenas comunes y no repite
+    un unico caracter. `cedula` y `correo` son opcionales porque todavia no
+    todas las cuentas tienen esos datos (A1 no hace backfill).
+    """
+    valor = (contrasena or "").strip()
+    if not valor:
+        raise ValueError("La contrasena no puede estar vacia")
+    if len(valor) < LONGITUD_MINIMA_CONTRASENA:
+        raise ValueError(
+            f"La contrasena debe tener al menos {LONGITUD_MINIMA_CONTRASENA} caracteres"
+        )
+    if cedula and valor.casefold() == cedula.strip().casefold():
+        raise ValueError("La contrasena no puede ser igual a tu cedula")
+    if correo and valor.casefold() == correo.strip().casefold():
+        raise ValueError("La contrasena no puede ser igual a tu correo")
+    if valor.casefold() in CONTRASENAS_BLOQUEADAS:
+        raise ValueError("Esa contrasena es demasiado comun, elige otra")
+    if len(set(valor)) == 1:
+        raise ValueError("La contrasena no puede repetir un solo caracter")
+
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))

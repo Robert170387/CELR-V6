@@ -14,6 +14,7 @@ from app.core.security import (
     create_refresh_token,
     revoke_refresh_token,
     hash_refresh_token,
+    validar_politica_contrasena,
 )
 from app.core.config import settings
 from app.core.rate_limiter import excede_limite, registrar_fallo, limpiar_fallos
@@ -125,6 +126,17 @@ def cambiar_contrasena(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="La contraseña actual es incorrecta",
         )
+    # A1: politica de contrasenas (min 8, no igual a cedula/correo, no comun,
+    # no un solo caracter repetido). Se valida antes de hashear para no tocar
+    # la BD si la contrasena sera rechazada.
+    try:
+        validar_politica_contrasena(
+            data.nueva_contrasena,
+            cedula=current_user.cedula,
+            correo=current_user.correo,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     current_user.contrasena_hash = hash_password(data.nueva_contrasena)
     current_user.debe_cambiar_contrasena = False
     current_user.ultimo_acceso = datetime.now(timezone.utc)

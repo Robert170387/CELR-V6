@@ -462,7 +462,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </nav>
 
         <div className="p-3 border-t border-slate-700">
-          {sidebarOpen && <div className="text-xs text-slate-500 mb-2">{user?.correo}</div>}
+          {sidebarOpen && (
+            <div className="text-xs text-slate-500 mb-2">
+              {user?.correo || user?.cedula || 'Usuario'}
+            </div>
+          )}
           <button
             onClick={logout}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-slate-400 hover:bg-danger-600/20 hover:text-danger-500 transition-colors"

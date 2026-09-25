@@ -11,7 +11,8 @@ import { authAPI } from '@/api'
 
 interface User {
   id: number
-  correo: string
+  cedula?: string | null
+  correo: string | null
   rol: string
   conductor_id?: number | null
   activo: boolean

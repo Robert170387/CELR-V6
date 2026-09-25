@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Numeric, Boolean, Date, ForeignKey, Text, DateTime, CheckConstraint
+from sqlalchemy import Column, Integer, String, Numeric, Boolean, Date, ForeignKey, Text, DateTime, CheckConstraint, Index, text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db.base_class import Base
@@ -45,13 +45,27 @@ class Usuario(Base):
     __tablename__ = "usuarios"
     __table_args__ = (
         CheckConstraint(SQL_CHECK_ROL, name="ck_usuarios_rol_valido"),
+        # A1: identidad canonica y 1:1 persona=cuenta. Son indices PARCIALES
+        # (WHERE ... IS NOT NULL) para que las cuentas que aun no tienen cedula
+        # ni conductor no colisionen entre si (PG ya lo permite en un UNIQUE,
+        # pero el indice explicito documenta la regla y cubre los NULLs).
+        Index("ux_usuarios_cedula", "cedula", unique=True,
+              postgresql_where=text("cedula IS NOT NULL")),
+        Index("ux_usuarios_conductor_id", "conductor_id", unique=True,
+              postgresql_where=text("conductor_id IS NOT NULL")),
     )
 
     id = Column(Integer, primary_key=True, index=True)
-    correo = Column(String(100), unique=True, nullable=False, index=True)
+    # A1: la cedula es la identidad primaria; el correo queda como atributo
+    # opcional (los indices UNIQUE admiten multiples NULL en PostgreSQL).
+    cedula = Column(String(20), nullable=True)
+    correo = Column(String(100), unique=True, nullable=True, index=True)
     contrasena_hash = Column(Text, nullable=False)
     rol = Column(String(20), nullable=False, default='conductor')
-    conductor_id = Column(Integer, ForeignKey("conductores.id"), index=True)
+    # A1: unicidad real (indice parcial ux_usuarios_conductor_id en __table_args__),
+    # no unique=True en la columna, para que el baseline dinamico create_all()
+    # genere el mismo esquema que la migracion Alembic.
+    conductor_id = Column(Integer, ForeignKey("conductores.id"))
     activo = Column(Boolean, nullable=False, default=True)
     debe_cambiar_contrasena = Column(Boolean, nullable=False, default=False)
     # Version del hash de contrasena. Cada vez que se cambia la contrasena se

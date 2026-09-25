@@ -25,7 +25,9 @@ class UsuarioLogin(BaseModel):
 
 class UsuarioResponse(BaseModel):
     id: int
-    correo: str
+    # A1: la cedula es la identidad primaria y el correo queda opcional.
+    cedula: Optional[str] = None
+    correo: Optional[str] = None
     rol: str
     conductor_id: Optional[int]
     activo: bool

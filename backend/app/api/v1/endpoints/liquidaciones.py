@@ -535,7 +535,10 @@ def reabrir_liquidacion(
 
     liquidacion.estado = "borrador"
     liquidacion.aprobado_por = None
-    rastro = f"[reabierto {date.today().isoformat()} por {current_user.correo}]"
+    # A1: correo deja de ser obligatorio, asi que el rastro no puede depender
+    # solo de el (cedula -> id como ultimo recurso).
+    actor = current_user.correo or current_user.cedula or f"usuario#{current_user.id}"
+    rastro = f"[reabierto {date.today().isoformat()} por {actor}]"
     liquidacion.observaciones = f"{liquidacion.observaciones or ''}\n{rastro}".strip()
 
     # B2: si es un cierre mensual reabierto, los viajes del mes siguen bloqueados

@@ -212,13 +212,16 @@ def test_cambio_contrasena_y_rate_limit():
     assert r.json()["debe_cambiar_contrasena"] is True, "debe_cambiar_contrasena deberia ser True"
     print("  /auth/me -> debe_cambiar_contrasena=True: PASADO")
 
-    # Contrasena actual incorrecta -> 400
-    r = client.post("/api/v1/auth/cambio-contrasena", json={"contrasena_actual": "wrongold", "nueva_contrasena": "new456"}, headers=headers)
+    # Contrasena actual incorrecta -> 400.
+    # "new45678" (>=8) es valida para la politica A1, asi que el 400 no puede
+    # atribuirse a la politica: solo a la contrasena actual incorrecta.
+    r = client.post("/api/v1/auth/cambio-contrasena", json={"contrasena_actual": "wrongold", "nueva_contrasena": "new45678"}, headers=headers)
     assert r.status_code == 400, f"contrasena actual incorrecta deberia ser 400: {r.status_code}"
     print("  cambio con contrasena actual incorrecta -> 400: PASADO")
 
-    # Cambio correcto -> 200 + tokens nuevos, y el flag se limpia
-    r = client.post("/api/v1/auth/cambio-contrasena", json={"contrasena_actual": "old123", "nueva_contrasena": "new456"}, headers=headers)
+    # Cambio correcto -> 200 + tokens nuevos, y el flag se limpia.
+    # A1: "new45678" cumple la politica (>=8 caracteres).
+    r = client.post("/api/v1/auth/cambio-contrasena", json={"contrasena_actual": "old123", "nueva_contrasena": "new45678"}, headers=headers)
     assert r.status_code == 200, f"cambio correcto deberia ser 200: {r.status_code} {r.text}"
     nuevo_body = r.json()
     nuevo_access = nuevo_body["access_token"]
@@ -232,7 +235,7 @@ def test_cambio_contrasena_y_rate_limit():
     print("  /auth/me con access viejo tras cambio -> 401: PASADO")
 
     # Login con la nueva contrasena
-    r = client.post("/api/v1/auth/login", json={"correo": "ratelimit@celr.com", "contrasena": "new456"})
+    r = client.post("/api/v1/auth/login", json={"correo": "ratelimit@celr.com", "contrasena": "new45678"})
     assert r.status_code == 200, f"login con nueva contrasena fallo: {r.status_code}"
     print("  login con nueva contrasena -> 200: PASADO")
     r = client.post("/api/v1/auth/login", json={"correo": "ratelimit@celr.com", "contrasena": "old123"})
@@ -255,6 +258,172 @@ def test_cambio_contrasena_y_rate_limit():
     print("  login correcto de otra cuenta -> 200 (rate limit por clave): PASADO")
 
 
+def test_politica_contrasenas():
+    """A1 — TP-P1..TP-P6: politica de contrasenas en /auth/cambio-contrasena."""
+    print("\n=== Test 7: politica de contrasenas (A1) ===")
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.db.session import SessionLocal as SL
+    from app.core.security import (
+        CONTRASENAS_BLOQUEADAS,
+        LONGITUD_MINIMA_CONTRASENA,
+        validar_politica_contrasena,
+    )
+
+    # --- Unidad: el helper de politica, sin HTTP ---
+    # Regla: longitud minima
+    try:
+        validar_politica_contrasena("a" * (LONGITUD_MINIMA_CONTRASENA - 1))
+        raise AssertionError("Deberia rechazar una contrasena corta")
+    except ValueError as e:
+        print(f"  [TP-P1] longitud {LONGITUD_MINIMA_CONTRASENA - 1} -> ValueError: PASADO")
+        assert str(LONGITUD_MINIMA_CONTRASENA) in str(e)
+
+    # Regla: vacia / solo espacios
+    try:
+        validar_politica_contrasena("        ")
+        raise AssertionError("Deberia rechazar una contrasena vacia")
+    except ValueError:
+        print("  contrasena de solo espacios -> ValueError: PASADO")
+
+    # Regla: igual a la cedula (case-insensitive, ignora espacios)
+    try:
+        validar_politica_contrasena("  12345678  ", cedula="12345678")
+        raise AssertionError("Deberia rechazar la contrasena igual a la cedula")
+    except ValueError as e:
+        print(f"  [TP-P2] igual a cedula -> ValueError: PASADO ({e})")
+
+    # Regla: igual al correo (case-insensitive)
+    try:
+        validar_politica_contrasena("USUARIO@CELR.COM", correo="usuario@celr.com")
+        raise AssertionError("Deberia rechazar la contrasena igual al correo")
+    except ValueError as e:
+        print(f"  [TP-P3] igual a correo -> ValueError: PASADO ({e})")
+
+    # Regla: contrasena comun bloqueada
+    assert "admin123" in CONTRASENAS_BLOQUEADAS, "admin123 debe estar bloqueada"
+    for bloqueada in sorted(CONTRASENAS_BLOQUEADAS):
+        try:
+            validar_politica_contrasena(bloqueada)
+            raise AssertionError(f"Deberia rechazar la contrasena comun '{bloqueada}'")
+        except ValueError:
+            pass
+    print(f"  [TP-P4] {len(CONTRASENAS_BLOQUEADAS)} contrasenas comunes bloqueadas: PASADO")
+
+    # Regla: un solo caracter repetido
+    for repetida in ("aaaaaaaa", "11111111"):
+        try:
+            validar_politica_contrasena(repetida)
+            raise AssertionError(f"Deberia rechazar '{repetida}'")
+        except ValueError:
+            pass
+    print("  [TP-P5] 'aaaaaaaa' / '11111111' (un solo caracter) -> ValueError: PASADO")
+
+    # Regla: una contrasena valida pasa el helper
+    validar_politica_contrasena("CargaSegura2026", cedula="12345678", correo="u@celr.com")
+    print("  contrasena valida ('CargaSegura2026') -> aceptada: PASADO")
+
+    # --- Integracion HTTP: 422 en el endpoint, 200 y efectos al exito ---
+    db = SL()
+    try:
+        pol_user = db.query(UsuarioModel).filter(UsuarioModel.correo == "politica@celr.com").first()
+        if not pol_user:
+            pol_user = UsuarioModel(
+                correo="politica@celr.com",
+                contrasena_hash=hash_password("old123"),
+                rol="admin",
+                activo=True,
+                debe_cambiar_contrasena=True,
+            )
+            db.add(pol_user)
+        else:
+            pol_user.contrasena_hash = hash_password("old123")
+            pol_user.debe_cambiar_contrasena = True
+        # Cedula canonica para probar TP-P2 por HTTP (A1 no hace backfill).
+        pol_user.cedula = "99887766"
+        db.commit()
+        db.refresh(pol_user)
+        version_inicial = pol_user.password_version
+    finally:
+        db.close()
+
+    client = TestClient(app)
+    r = client.post("/api/v1/auth/login", json={"correo": "politica@celr.com", "contrasena": "old123"})
+    assert r.status_code == 200, f"login inicial fallo: {r.status_code} {r.json()}"
+    token = r.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # /auth/me expone la cedula y el correo (H1)
+    r = client.get("/api/v1/auth/me", headers=headers)
+    assert r.status_code == 200, f"me fallo: {r.status_code}"
+    assert r.json()["cedula"] == "99887766", f"cedula no expuesta: {r.json()}"
+    print("  /auth/me -> cedula='99887766', correo='politica@celr.com': PASADO (H1)")
+
+    # 422 por HTTP para cada regla de la politica
+    casos_422 = [
+        ("[TP-P1] 7 caracteres", "abc1234"),
+        ("[TP-P2] igual a la cedula", "99887766"),
+        ("[TP-P3] igual al correo", "politica@celr.com"),
+        ("[TP-P4] contrasena comun", "admin123"),
+        ("[TP-P5] un solo caracter", "aaaaaaaa"),
+    ]
+    for etiqueta, nueva in casos_422:
+        r = client.post(
+            "/api/v1/auth/cambio-contrasena",
+            json={"contrasena_actual": "old123", "nueva_contrasena": nueva},
+            headers=headers,
+        )
+        assert r.status_code == 422, f"{etiqueta} deberia ser 422: {r.status_code} {r.text}"
+        detalle = r.json().get("detail", "")
+        assert detalle, "El 422 debe traer detalle en espanol"
+        print(f"  {etiqueta} -> 422: {detalle}")
+
+    # Ningun rechazo cambio nada: la contrasena sigue siendo la original
+    r = client.post("/api/v1/auth/login", json={"correo": "politica@celr.com", "contrasena": "old123"})
+    assert r.status_code == 200, "Los rechazos no debian alterar la contrasena"
+    print("  contrasena intacta tras los 5 rechazos: PASADO")
+
+    # Cambio valido -> 200, password_version incrementa y los refresh se revocan
+    r = client.post(
+        "/api/v1/auth/cambio-contrasena",
+        json={"contrasena_actual": "old123", "nueva_contrasena": "CargaSegura2026"},
+        headers=headers,
+    )
+    assert r.status_code == 200, f"[TP-P6] cambio valido deberia ser 200: {r.status_code} {r.text}"
+    nuevo_access = r.json()["access_token"]
+    assert nuevo_access and nuevo_access != token, "El access token nuevo debe ser distinto"
+    print("  [TP-P6] cambio valido -> 200 + tokens nuevos: PASADO")
+
+    # El access viejo quedo invalidado de inmediato (password_version)
+    r = client.get("/api/v1/auth/me", headers=headers)
+    assert r.status_code == 401, f"access viejo deberia quedar invalidado: {r.status_code}"
+    print("  /auth/me con access viejo -> 401 (password_version): PASADO")
+
+    db = SL()
+    try:
+        pol_user = db.query(UsuarioModel).filter(UsuarioModel.correo == "politica@celr.com").first()
+        assert pol_user.password_version == version_inicial + 1, (
+            f"password_version deberia ser {version_inicial + 1}: {pol_user.password_version}"
+        )
+        activos = (
+            db.query(RefreshToken)
+            .filter(RefreshToken.usuario_id == pol_user.id, RefreshToken.revocado == False)  # noqa: E712
+            .count()
+        )
+        # Tras el cambio solo queda vigente el refresh recien emitido.
+        assert activos == 1, f"Deberia quedar 1 refresh activo, hay {activos}"
+        print("  [TP-P6] password_version incrementado + refreshes previos revocados: PASADO")
+    finally:
+        db.close()
+
+    # Login con la nueva contrasena
+    r = client.post("/api/v1/auth/login", json={"correo": "politica@celr.com", "contrasena": "CargaSegura2026"})
+    assert r.status_code == 200, f"login con la nueva contrasena fallo: {r.status_code} {r.json()}"
+    r = client.post("/api/v1/auth/login", json={"correo": "politica@celr.com", "contrasena": "old123"})
+    assert r.status_code == 401, "La contrasena vieja deberia fallar"
+    print("  login con nueva / vieja contrasena -> 200 / 401: PASADO")
+
+
 def main():
     print("Iniciando prueba de autenticacion JWT CELR v6...")
     db = SessionLocal()
@@ -268,6 +437,7 @@ def main():
         test_get_me(token)
         test_refresh_flow()
         test_cambio_contrasena_y_rate_limit()
+        test_politica_contrasenas()
         print("\n[TODOS LOS TESTS DE AUTENTICACION PASARON]")
     except Exception as e:
         print(f"\n[ERROR EN TESTS]: {e}")
@@ -278,6 +448,7 @@ def main():
         # Limpieza 2.B: DELETE real solo de lo creado por esta corrida.
         # Orden inverso de FK: refresh_tokens antes que usuarios (FK sin CASCADE).
         # Nunca se borra test@celr.com (usuario semilla del stack).
+        # politica@celr.com es temporal de A1 (cedula de prueba 99887766).
         try:
             limpiar_tokens_nuevos(db, "ratelimit@celr.com", tokens_antes_ratelimit)
             rl = db.query(UsuarioModel).filter(UsuarioModel.correo == "ratelimit@celr.com").first()
@@ -289,6 +460,12 @@ def main():
                 )
                 db.delete(rl)
             limpiar_tokens_nuevos(db, "test@celr.com", tokens_antes_test)
+            pol = db.query(UsuarioModel).filter(UsuarioModel.correo == "politica@celr.com").first()
+            if pol:
+                db.query(RefreshToken).filter(RefreshToken.usuario_id == pol.id).delete(
+                    synchronize_session=False
+                )
+                db.delete(pol)
             db.commit()
         except Exception:
             db.rollback()
