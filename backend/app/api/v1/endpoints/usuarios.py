@@ -7,7 +7,7 @@ import logging
 import secrets
 from typing import Dict, FrozenSet
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import RoleChecker, get_current_user
@@ -18,6 +18,8 @@ from app.models.flota import PasswordResetToken
 from app.models.flota import RefreshToken as RefreshTokenModel
 from app.models.flota import Usuario as UsuarioModel
 from app.schemas.usuario import AdminResetCodigoResponse, AdminResetPasswordResponse
+from app.services.auditoria import obtener_ip, obtener_user_agent
+from app.services.auditoria import registrar as registrar_auditoria
 from app.services.password_reset import generar_token_reset, ttl_por_tipo
 
 logger = logging.getLogger(__name__)
@@ -97,6 +99,7 @@ def _resolver_objetivo(db: Session, usuario_id: int, current_user: UsuarioModel)
 )
 def reset_password_asistido(
     usuario_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: UsuarioModel = Depends(get_current_user),
 ):
@@ -122,6 +125,17 @@ def reset_password_asistido(
         RefreshTokenModel.usuario_id == usuario.id,
         RefreshTokenModel.revocado.is_(False),
     ).update({"revocado": True}, synchronize_session=False)
+
+    # A3.4: la contrasena temporal NO va en `detalle` ni en el log (invariante
+    # TAUD-10). El rastro dice QUIEN reseteo a QUIEN, no QUE credencial.
+    registrar_auditoria(
+        db,
+        "password_reset_admin",
+        actor_id=current_user.id,
+        objetivo_id=usuario.id,
+        ip=obtener_ip(request),
+        user_agent=obtener_user_agent(request),
+    )
 
     db.commit()
     # Traza minima: QUIEN reseteo y a QUIEN, nunca la contrasena. La auditoria
@@ -152,6 +166,7 @@ def reset_password_asistido(
 )
 def reset_codigo_asistido(
     usuario_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: UsuarioModel = Depends(get_current_user),
 ):
@@ -169,6 +184,15 @@ def reset_codigo_asistido(
     usuario = _resolver_objetivo(db, usuario_id, current_user)
 
     codigo = generar_token_reset(db, usuario.id, tipo="codigo")
+    # A3.4: el codigo de 6 digitos NO va en `detalle` (invariante TAUD-10).
+    registrar_auditoria(
+        db,
+        "password_reset_codigo_generado",
+        actor_id=current_user.id,
+        objetivo_id=usuario.id,
+        ip=obtener_ip(request),
+        user_agent=obtener_user_agent(request),
+    )
     db.commit()
     fila = (
         db.query(PasswordResetToken)

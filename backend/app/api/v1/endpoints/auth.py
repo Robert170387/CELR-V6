@@ -18,6 +18,8 @@ from app.core.security import (
 )
 from app.core.config import settings
 from app.core.rate_limiter import excede_limite, registrar_fallo, limpiar_fallos
+from app.services.auditoria import obtener_ip, obtener_user_agent
+from app.services.auditoria import registrar as registrar_auditoria
 from app.services.auth import resolver_usuario_por_identificador
 from app.services.email import get_email_backend
 from app.services.password_reset import (
@@ -47,13 +49,15 @@ MSG_RESET_GENERICO = "Si el identificador existe, se enviara un enlace de recupe
 
 
 @router.post("/auth/login", response_model=Token)
-def login(login_data: UsuarioLogin, db: Session = Depends(get_db)):
+def login(login_data: UsuarioLogin, request: Request, db: Session = Depends(get_db)):
     """A2 (D1): login por `identificador` (cedula o correo).
 
     `correo` se acepta como alias legacy. Si llegan ambos, `identificador` manda.
     """
     identificador = login_data.identificador or login_data.correo or ""
     clave = identificador.strip().lower()
+    ip = obtener_ip(request)
+    ua = obtener_user_agent(request)
 
     db_usuario = resolver_usuario_por_identificador(db, identificador)
     # A2: canonizar el rate limit por cuenta, no por puerta de entrada. Sin esto,
@@ -76,6 +80,17 @@ def login(login_data: UsuarioLogin, db: Session = Depends(get_db)):
         registrar_fallo(clave)
         if clave_usuario:
             registrar_fallo(clave_usuario)
+        # A3.4: actor y objetivo a proposito en NULL. La cuenta se conoce (el
+        # hash no dio, o el usuario no existe), pero anotarla convertiria el
+        # rastro en un oraculo de que cuentas existen.
+        registrar_auditoria(
+            db,
+            "login_fail",
+            ip=ip,
+            user_agent=ua,
+            detalle={"motivo": "credenciales"},
+        )
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Credenciales incorrectas",
@@ -84,6 +99,17 @@ def login(login_data: UsuarioLogin, db: Session = Depends(get_db)):
     if not db_usuario.activo:
         registrar_fallo(clave)
         registrar_fallo(clave_usuario)
+        # Aca la cuenta SI se conoce: es la suya y esta inactiva. El 403 ya lo
+        # revelaba al cliente, asi que el rastro no agrega exposicion.
+        registrar_auditoria(
+            db,
+            "login_inactivo",
+            actor_id=db_usuario.id,
+            objetivo_id=db_usuario.id,
+            ip=ip,
+            user_agent=ua,
+        )
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Usuario inactivo",
@@ -91,6 +117,16 @@ def login(login_data: UsuarioLogin, db: Session = Depends(get_db)):
     # Exito: limpiar las dos cubetas para no arrastrar historial de otra puerta.
     limpiar_fallos(clave)
     limpiar_fallos(clave_usuario)
+    # A3.4: el evento se registra antes del commit de abajo, asi que comparte
+    # transaccion con la emision de tokens.
+    registrar_auditoria(
+        db,
+        "login_ok",
+        actor_id=db_usuario.id,
+        objetivo_id=db_usuario.id,
+        ip=ip,
+        user_agent=ua,
+    )
     token_data = {
         "usuario_id": db_usuario.id,
         "correo": db_usuario.correo,
@@ -158,7 +194,9 @@ def get_current_user_endpoint(current_user: UsuarioModel = Depends(get_current_u
 
 
 @router.post("/auth/forgot-password")
-def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
+def forgot_password(
+    data: ForgotPasswordRequest, request: Request, db: Session = Depends(get_db)
+):
     """A3.1 — Pide un enlace de recuperacion. Publico por diseno.
 
     Siempre responde 200 con el mismo mensaje, exista o no la cuenta: si el
@@ -204,6 +242,17 @@ def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
                 # vivo que nadie recibio y que la sesion de reintento invalidaria.
                 db.rollback()
                 raise
+        # A3.4: solo si el identificador RESUELVE. Si no resuelve no se escribe
+        # nada: asi el rastro no se convierte en un segundo canal por el que
+        # saber que cuentas existen, y tampoco se llena de filas por intento.
+        registrar_auditoria(
+            db,
+            "password_reset_solicitado",
+            objetivo_id=usuario.id,
+            ip=obtener_ip(request),
+            user_agent=obtener_user_agent(request),
+            detalle={"con_correo": bool(usuario.correo)},
+        )
         db.commit()
 
     # Sea como sea, la respuesta es identica.
@@ -211,7 +260,9 @@ def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/auth/reset-password")
-def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
+def reset_password(
+    data: ResetPasswordRequest, request: Request, db: Session = Depends(get_db)
+):
     """A3.1 — Consume el token y fija la nueva contrasena. Publico por diseno:
     el token es la prueba de que el solicitante tiene el buzon."""
     fila = validar_token_reset(db, data.token, tipo="enlace")
@@ -248,6 +299,15 @@ def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
     usuario.debe_cambiar_contrasena = False
     usuario.password_version = (usuario.password_version or 0) + 1
     usuario.ultimo_acceso = datetime.now(timezone.utc)
+    # A3.4: sin actor porque el endpoint es publico — el token prueba el buzon,
+    # no una sesion. El token NO va en `detalle` (invariante TAUD-10).
+    registrar_auditoria(
+        db,
+        "password_reset_enlace",
+        objetivo_id=usuario.id,
+        ip=obtener_ip(request),
+        user_agent=obtener_user_agent(request),
+    )
     # El resto de sesiones abiertas deben caer: la credencial cambio.
     db.execute(
         update(RefreshTokenModel)
@@ -324,6 +384,14 @@ def reset_con_codigo(
     usuario.debe_cambiar_contrasena = False
     usuario.password_version = (usuario.password_version or 0) + 1
     usuario.ultimo_acceso = datetime.now(timezone.utc)
+    # A3.4: endpoint publico, sin actor. El codigo NO va en `detalle`.
+    registrar_auditoria(
+        db,
+        "password_reset_codigo_canje",
+        objetivo_id=usuario.id,
+        ip=obtener_ip(request),
+        user_agent=obtener_user_agent(request),
+    )
     db.execute(
         update(RefreshTokenModel)
         .where(
@@ -339,6 +407,7 @@ def reset_con_codigo(
 @router.post("/auth/cambio-contrasena", response_model=Token)
 def cambiar_contrasena(
     data: CambioContrasenaRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: UsuarioModel = Depends(get_current_user),
 ):
@@ -383,5 +452,15 @@ def cambiar_contrasena(
         "password_version": current_user.password_version,
     }
     new_access = create_access_token(token_data, expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
+    # A3.4: actor y objetivo son la misma cuenta (se cambia a si misma). Las
+    # contrasenas nueva y vieja NO van en `detalle` (invariante TAUD-10).
+    registrar_auditoria(
+        db,
+        "password_change",
+        actor_id=current_user.id,
+        objetivo_id=current_user.id,
+        ip=obtener_ip(request),
+        user_agent=obtener_user_agent(request),
+    )
     db.commit()
     return Token(access_token=new_access, refresh_token=new_refresh)

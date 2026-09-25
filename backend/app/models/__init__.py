@@ -11,6 +11,7 @@ from .financiero import Ingreso, LiquidacionConductor, MovimientoBancario, Flypa
 from .mantenimiento import MantenimientoRegla, MantenimientoRegistro, DocumentoVencimiento, ConfiguracionSistema
 from .ubicacion import Municipio
 from .secuencia import SecuenciaDocumento
+from .auditoria import AuditoriaEvento
 
 # Reexportar todo para simplificar importaciones en otras partes de la app
 __all__ = [
@@ -18,5 +19,5 @@ __all__ = [
     "Proveedor", "ViajeODT", "Gasto", "TarjetaBancaria",
     "Ingreso", "LiquidacionConductor", "MovimientoBancario", "FlypassTransaccion",
     "MantenimientoRegla", "MantenimientoRegistro", "DocumentoVencimiento", "ConfiguracionSistema",
-    "Municipio", "SecuenciaDocumento"
+    "Municipio", "SecuenciaDocumento", "AuditoriaEvento"
 ]
