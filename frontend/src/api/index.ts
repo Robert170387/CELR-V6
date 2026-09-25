@@ -34,6 +34,14 @@ export const authAPI = {
     }),
 }
 
+export interface ViajeCandidato {
+  id: number
+  numero_odt: string
+  vehiculo_id: number
+  fecha_salida: string
+  fecha_llegada: string | null
+}
+
 export const viajesAPI = {
   listar: (activo = true, params?: Paginado) =>
     apiClient.get('/viajes', { params: { activo, ...params } }).then((r) => conTotal<any>(r)),
@@ -41,6 +49,8 @@ export const viajesAPI = {
   obtener: (id: number) => apiClient.get(`/viajes/${id}`),
   porConductor: (conductorId: number) =>
     apiClient.get(`/viajes/conductor/${conductorId}`).then((r) => conTotal<any>(r)),
+  porVehiculo: (vehiculoId: number) =>
+    apiClient.get(`/viajes/vehiculo/${vehiculoId}`).then((r) => r.data as ViajeCandidato[]),
   actualizar: (id: number, data: any) => apiClient.put(`/viajes/${id}`, data),
   eliminar: (id: number) => apiClient.delete(`/viajes/${id}`),
   // FASE A2 — Regla 4: bloqueos para finalizar la ODT
@@ -150,6 +160,12 @@ export interface FlypassListItem {
   viaje_id: number | null
   gasto_id: number | null
   legalizado_en_gastos: boolean
+  estado: string
+}
+
+export interface FlypassUpdateBody {
+  viaje_id?: number | null
+  estado?: string
 }
 
 export interface FlypassListResponse {
@@ -190,6 +206,8 @@ export const flypassAPI = {
       })
       .then((r) => r.data as FlypassImportReporte)
   },
+  editarFlypass: (id: number, body: FlypassUpdateBody) =>
+    apiClient.patch(`/flypass/${id}`, body).then((r) => r.data as FlypassListItem),
 }
 
 export interface CompensadoMensual {

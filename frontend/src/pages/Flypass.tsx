@@ -13,9 +13,12 @@ import {
 } from 'lucide-react'
 import {
   flypassAPI,
+  viajesAPI,
   FlypassImportReporte,
   FlypassListItem,
   FlypassListParams,
+  FlypassUpdateBody,
+  ViajeCandidato,
 } from '@/api'
 import Pagination from '@/components/Pagination'
 import { extraerMensajeError, formatearMoneda } from '@/utils/format'
@@ -35,6 +38,49 @@ const filtrosIniciales: Filtros = {
   placa: '',
   sin_odt: false,
   sin_gasto: false,
+}
+
+const ESTADOS_FLYPASS = [
+  { value: 'importado', label: 'Importado' },
+  { value: 'asignado_a_viaje', label: 'Asignado' },
+  { value: 'sin_viaje', label: 'Sin viaje' },
+  { value: 'ignorar', label: 'Ignorar' },
+] as const
+
+const DIAS_CANDIDATOS_VIAJE = 30
+
+const fechaSinHora = (valor: string): Date => new Date(`${valor.slice(0, 10)}T00:00:00`)
+
+const formatearOpcionViaje = (viaje: ViajeCandidato): string => {
+  const llegada = viaje.fecha_llegada ? formatearFecha(viaje.fecha_llegada) : '—'
+  return `${viaje.numero_odt} (${formatearFecha(viaje.fecha_salida)} → ${llegada})`
+}
+
+const viajesCercanos = (item: FlypassListItem, viajes: ViajeCandidato[]): ViajeCandidato[] => {
+  const fechaTransaccion = fechaSinHora(item.fecha_transaccion)
+  if (Number.isNaN(fechaTransaccion.getTime())) return []
+
+  const desde = new Date(fechaTransaccion)
+  desde.setDate(desde.getDate() - DIAS_CANDIDATOS_VIAJE)
+  const hasta = new Date(fechaTransaccion)
+  hasta.setDate(hasta.getDate() + DIAS_CANDIDATOS_VIAJE)
+
+  return viajes
+    .filter((viaje) => {
+      const salida = fechaSinHora(viaje.fecha_salida)
+      const llegada = viaje.fecha_llegada ? fechaSinHora(viaje.fecha_llegada) : salida
+      return !Number.isNaN(salida.getTime()) && !Number.isNaN(llegada.getTime()) && salida <= hasta && llegada >= desde
+    })
+    .sort((a, b) => {
+      const distancia = (viaje: ViajeCandidato): number => {
+        const salida = fechaSinHora(viaje.fecha_salida).getTime()
+        const llegada = viaje.fecha_llegada ? fechaSinHora(viaje.fecha_llegada).getTime() : salida
+        if (fechaTransaccion.getTime() < salida) return salida - fechaTransaccion.getTime()
+        if (fechaTransaccion.getTime() > llegada) return fechaTransaccion.getTime() - llegada
+        return 0
+      }
+      return distancia(a) - distancia(b) || a.numero_odt.localeCompare(b.numero_odt)
+    })
 }
 
 const construirParams = (page: number, filtros: Filtros): FlypassListParams => {
@@ -66,6 +112,74 @@ const formatearErrorImportacion = (item: Record<string, unknown>): string => {
   return `${fila}Revisar detalle de la importación`
 }
 
+interface SelectorViajeProps {
+  item: FlypassListItem
+  candidatos: ViajeCandidato[]
+  loading: boolean
+  disabled: boolean
+  onFocus: () => void
+  onChange: (valor: string) => void
+}
+
+const SelectorViaje: React.FC<SelectorViajeProps> = ({
+  item,
+  candidatos,
+  loading,
+  disabled,
+  onFocus,
+  onChange,
+}) => {
+  const actualFueraDeRango =
+    item.viaje_id !== null && !candidatos.some((viaje) => viaje.id === item.viaje_id)
+
+  return (
+    <div className="flex min-w-[220px] items-center gap-2">
+      <select
+        value={item.viaje_id === null ? '' : String(item.viaje_id)}
+        onFocus={onFocus}
+        onClick={onFocus}
+        onChange={(event) => onChange(event.target.value)}
+        disabled={disabled || loading}
+        aria-label={`ODT de ${item.placa || item.vehiculo_id}`}
+        className="input-truck min-w-0 flex-1 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <option value="">Sin ODT</option>
+        {actualFueraDeRango && (
+          <option value={String(item.viaje_id)}>ODT #{item.viaje_id} (actual)</option>
+        )}
+        {candidatos.map((viaje) => (
+          <option key={viaje.id} value={String(viaje.id)}>
+            {formatearOpcionViaje(viaje)}
+          </option>
+        ))}
+      </select>
+      {loading && <Loader2 size={14} className="shrink-0 animate-spin text-primary-400" />}
+    </div>
+  )
+}
+
+interface SelectorEstadoProps {
+  valor: string
+  disabled: boolean
+  onChange: (valor: string) => void
+}
+
+const SelectorEstado: React.FC<SelectorEstadoProps> = ({ valor, disabled, onChange }) => (
+  <select
+    value={valor}
+    onChange={(event) => onChange(event.target.value)}
+    disabled={disabled}
+    aria-label="Estado de la transacción Flypass"
+    className="input-truck min-w-[145px] py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-60"
+  >
+    {ESTADOS_FLYPASS.map((estado) => (
+      <option key={estado.value} value={estado.value}>
+        {estado.label}
+      </option>
+    ))}
+  </select>
+)
+
 const Flypass: React.FC = () => {
   const [items, setItems] = useState<FlypassListItem[]>([])
   const [total, setTotal] = useState(0)
@@ -78,6 +192,11 @@ const Flypass: React.FC = () => {
   const [importError, setImportError] = useState('')
   const [reporte, setReporte] = useState<FlypassImportReporte | null>(null)
   const [mostrarReporte, setMostrarReporte] = useState(false)
+  const [viajesPorVehiculo, setViajesPorVehiculo] = useState<Record<number, ViajeCandidato[]>>({})
+  const [cargandoViajes, setCargandoViajes] = useState<Record<number, boolean>>({})
+  const [editandoIds, setEditandoIds] = useState<Set<number>>(new Set())
+  const [feedback, setFeedback] = useState<{ tipo: 'error' | 'exito'; mensaje: string } | null>(null)
+  const viajesSolicitados = useRef<Set<number>>(new Set())
   const fileInput = useRef<HTMLInputElement>(null)
 
   const cargar = useCallback(async () => {
@@ -97,6 +216,86 @@ const Flypass: React.FC = () => {
   useEffect(() => {
     void cargar()
   }, [cargar])
+
+  useEffect(() => {
+    if (!feedback) return
+    const timer = window.setTimeout(() => setFeedback(null), 5000)
+    return () => window.clearTimeout(timer)
+  }, [feedback])
+
+  const cargarViajes = useCallback(async (vehiculoId: number) => {
+    if (viajesSolicitados.current.has(vehiculoId)) return
+    viajesSolicitados.current.add(vehiculoId)
+    setCargandoViajes((actual) => ({ ...actual, [vehiculoId]: true }))
+    try {
+      const viajes = await viajesAPI.porVehiculo(vehiculoId)
+      setViajesPorVehiculo((actual) => ({ ...actual, [vehiculoId]: viajes }))
+    } catch (err) {
+      viajesSolicitados.current.delete(vehiculoId)
+      setFeedback({
+        tipo: 'error',
+        mensaje: `No se pudieron cargar los viajes: ${extraerMensajeError(err)}`,
+      })
+    } finally {
+      setCargandoViajes((actual) => {
+        const siguiente = { ...actual }
+        delete siguiente[vehiculoId]
+        return siguiente
+      })
+    }
+  }, [])
+
+  const guardarCambio = async (
+    item: FlypassListItem,
+    body: FlypassUpdateBody,
+    cambiosOptimistas: Partial<Pick<FlypassListItem, 'viaje_id' | 'estado'>>,
+    mensajeExito: string,
+  ) => {
+    const anterior = { viaje_id: item.viaje_id, estado: item.estado }
+    setItems((actuales) =>
+      actuales.map((fila) => (fila.id === item.id ? { ...fila, ...cambiosOptimistas } : fila)),
+    )
+    setEditandoIds((actuales) => new Set(actuales).add(item.id))
+    try {
+      const actualizada = await flypassAPI.editarFlypass(item.id, body)
+      setItems((actuales) =>
+        actuales.map((fila) => (fila.id === item.id ? { ...fila, ...actualizada } : fila)),
+      )
+      setFeedback({ tipo: 'exito', mensaje: mensajeExito })
+    } catch (err) {
+      setItems((actuales) =>
+        actuales.map((fila) =>
+          fila.id === item.id ? { ...fila, ...anterior } : fila,
+        ),
+      )
+      setFeedback({ tipo: 'error', mensaje: extraerMensajeError(err) })
+    } finally {
+      setEditandoIds((actuales) => {
+        const siguiente = new Set(actuales)
+        siguiente.delete(item.id)
+        return siguiente
+      })
+    }
+  }
+
+  const cambiarViaje = (item: FlypassListItem, valor: string) => {
+    const nuevoViajeId = valor === '' ? null : Number(valor)
+    if (nuevoViajeId === item.viaje_id) return
+    void guardarCambio(
+      item,
+      { viaje_id: nuevoViajeId },
+      {
+        viaje_id: nuevoViajeId,
+        estado: nuevoViajeId === null ? 'sin_viaje' : 'asignado_a_viaje',
+      },
+      nuevoViajeId === null ? 'ODT eliminada correctamente' : 'ODT actualizada correctamente',
+    )
+  }
+
+  const cambiarEstado = (item: FlypassListItem, valor: string) => {
+    if (valor === item.estado) return
+    void guardarCambio(item, { estado: valor }, { estado: valor }, 'Estado actualizado correctamente')
+  }
 
   const aplicarFiltros = (event: React.FormEvent) => {
     event.preventDefault()
@@ -176,6 +375,32 @@ const Flypass: React.FC = () => {
         <div className="flex items-start gap-2 rounded-lg border border-danger-500/30 bg-danger-500/10 p-3 text-sm text-danger-400">
           <AlertCircle size={18} className="mt-0.5 shrink-0" />
           <span>{importError}</span>
+        </div>
+      )}
+
+      {feedback && (
+        <div
+          role={feedback.tipo === 'error' ? 'alert' : 'status'}
+          className={`fixed right-4 top-4 z-50 flex max-w-sm items-start gap-2 rounded-lg border p-3 text-sm shadow-xl ${
+            feedback.tipo === 'error'
+              ? 'border-danger-500/40 bg-slate-900 text-danger-300'
+              : 'border-green-500/40 bg-slate-900 text-green-300'
+          }`}
+        >
+          {feedback.tipo === 'error' ? (
+            <AlertCircle size={18} className="mt-0.5 shrink-0" />
+          ) : (
+            <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
+          )}
+          <span className="flex-1">{feedback.mensaje}</span>
+          <button
+            type="button"
+            onClick={() => setFeedback(null)}
+            className="shrink-0 text-slate-400 hover:text-white"
+            aria-label="Cerrar aviso"
+          >
+            <X size={16} />
+          </button>
         </div>
       )}
 
@@ -282,6 +507,7 @@ const Flypass: React.FC = () => {
                   <th className="px-3 py-3">ODT</th>
                   <th className="px-3 py-3">Gasto</th>
                   <th className="px-3 py-3">Estado</th>
+                  <th className="px-3 py-3">Legalizado</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
@@ -299,16 +525,14 @@ const Flypass: React.FC = () => {
                       {item.num_transaccion_flypass}
                     </td>
                     <td className="px-3 py-3 whitespace-nowrap">
-                      {item.viaje_id ? (
-                        <a
-                          href={`/viajes?odt=${item.viaje_id}`}
-                          className="text-primary-400 hover:text-primary-300 inline-flex items-center gap-1"
-                        >
-                          ODT #{item.viaje_id} <ExternalLink size={13} />
-                        </a>
-                      ) : (
-                        <span className="text-slate-600">Sin ODT</span>
-                      )}
+                      <SelectorViaje
+                        item={item}
+                        candidatos={viajesCercanos(item, viajesPorVehiculo[item.vehiculo_id] || [])}
+                        loading={Boolean(cargandoViajes[item.vehiculo_id])}
+                        disabled={editandoIds.has(item.id)}
+                        onFocus={() => void cargarViajes(item.vehiculo_id)}
+                        onChange={(valor) => cambiarViaje(item, valor)}
+                      />
                     </td>
                     <td className="px-3 py-3 whitespace-nowrap">
                       {item.gasto_id ? (
@@ -321,6 +545,13 @@ const Flypass: React.FC = () => {
                       ) : (
                         <span className="text-amber-400">Sin gasto</span>
                       )}
+                    </td>
+                    <td className="px-3 py-3 whitespace-nowrap">
+                      <SelectorEstado
+                        valor={item.estado}
+                        disabled={editandoIds.has(item.id)}
+                        onChange={(valor) => cambiarEstado(item, valor)}
+                      />
                     </td>
                     <td className="px-3 py-3 whitespace-nowrap">
                       {item.legalizado_en_gastos ? (
