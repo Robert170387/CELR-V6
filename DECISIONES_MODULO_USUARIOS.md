@@ -1,19 +1,17 @@
 # Decisiones — Módulo de Usuarios
 
-**Estado:** borrador previo a implementación. Sin código.
+**Estado:** decisiones bloqueantes cerradas; A1 desbloqueada. Sin código en esta sub-fase.
 **Fecha:** 2026-09-25.
-**Contexto:** auditoría read-only completada en `adeb89c`.
+**Contexto:** auditoría read-only completada en `adeb89c`; respuestas de negocio registradas en A0.1.
 **Complementa:** `ALINEACION_MODELO_NEGOCIO.md`, `INSTRUCCIONES_OPENCODE.md §8`.
 
 ## Resumen
 
-- 5 decisiones cerradas con voto provisional (D1, D2, D4, D5, D9).
-- 3 decisiones bloqueantes que requieren input del usuario/negocio (D3,
-  correo nullable, cardinalidad Usuario–Conductor).
-- 1 pregunta bloqueante que define D3: ¿existen personas jurídicas como
-  cuentas de acceso?
+- 8 decisiones cerradas con voto (D1, D2, D3, D4, D5, D9, correo nullable, cardinalidad).
+- 0 decisiones bloqueantes para A1.
 - 3 decisiones diferidas para A3/A5 (D7, D8, auditoría).
 - 1 tema separado (residuos `cli-*`/`cond-*`).
+- A1 puede comenzar con migración nullable, sin backfill destructivo y con guards idempotentes.
 
 ## Decisiones cerradas (con voto)
 
@@ -21,39 +19,48 @@
 |---|---|---|---|
 | D1 | Login por cédula/correo | Coexistencia: aceptar `identificador`, mantener `correo` como alias | Compatibilidad con clientes actuales + flexibilidad |
 | D2 | Reset por email | Arquitectura email_mock local + proveedor real futuro, dividido en capas (token persistido → email → asistido admin → código offline) | No hay SMTP hoy; arquitectura correcta desde el inicio |
+| D3 | Fuente canónica de cédula | Opción C simplificada: `usuarios.cedula UNIQUE NULL`, sin `identificador_fiscal` | No hay personas jurídicas; no todos los usuarios son conductores |
 | D4 | Reset asistido por admin | Solo contraseña temporal (server-generated, mostrada una vez, `debe_cambiar_contrasena=True`) | El admin nunca conoce la contraseña final |
 | D5 | Residuos `cli-*`/`cond-*` | No tocar en A1; resolver en fase separada | Cambio de dominio independiente |
 | D9 | Invariantes de auditoría | Actores derivados del token (implementado en Track C, `adeb89c`) | Integridad de auditoría |
+| Correo | `usuarios.correo` nullable | Sí | Coherente con login por cédula, reset sin email y reset asistido/offline |
+| Cardinalidad | Usuario–Conductor | 1:1 opcional; `conductor_id UNIQUE NULL` | Una persona tiene una cuenta; el vínculo con Conductor es opcional |
 
-## Decisiones bloqueantes para A1
+## Decisiones cerradas para A1 (2026-09-25)
 
-### D3 — Fuente canónica de la cédula
+### D3 — Fuente canónica de la cédula → Opción C simplificada
 
-**Opciones:**
+**Respuestas del usuario:**
 
-- **A** — Derivar de `Conductor.cedula`. Cero duplicación, pero usuarios no-conductores no pueden loguear por cédula.
-- **B** — Entidad `Persona` separada. Limpia a largo plazo; refactor grande (Conductor + Usuario + más).
-- **C** — `usuarios.cedula UNIQUE` canónica + regla de sincronización con `Conductor.cedula`.
+- ¿Personas jurídicas como cuentas de acceso? **No.**
+- ¿Todos los usuarios son conductores? **No.**
+- ¿Una persona puede tener varias cuentas? **No.**
 
-**Voto provisional:** C **condicionada** a la respuesta de la pregunta bloqueante. Si existen personas jurídicas, C necesita además decisión sobre `identificador_fiscal`.
+**Diseño derivado:**
 
-**Pregunta bloqueante:** ¿Todas las cuentas de acceso representan personas naturales con cédula, o también existen cuentas de empresas/personas jurídicas?
+- `usuarios.cedula VARCHAR(20) UNIQUE NULL` — canónica, identifica a la persona.
+- `usuarios.conductor_id INTEGER FK NULL UNIQUE` — vínculo 1:1 opcional.
+- `usuarios.correo` pasa a **nullable**.
+- **Sin** `identificador_fiscal` (no hay personas jurídicas).
 
-### Correo nullable
+**Regla de sincronización:** si `conductor_id IS NOT NULL` →
+`usuarios.cedula` debe coincidir con `Conductor.cedula` (validación en
+endpoints de creación/edición de usuario). Si `conductor_id IS NULL` (admin,
+operador, contador) → la cédula vive solo en `usuarios`.
 
-**Voto:** sí, `usuarios.correo` pasa a nullable.
-**Fundamento:** coherente con D1 (login por cédula) + D2 (reset sin email) + reset asistido/offline para cuentas sin correo.
-**Riesgo:** rompe contratos que asumen correo obligatorio (scripts, tests, respuestas). Mitigación: revisar consumidores en A1.
+**Backfill de los 7 usuarios actuales:** `usuarios.cedula` nullable; los
+existentes quedan en `NULL`. Los nuevos se crean con cédula obligatoria desde
+la UI de gestión (A5).
 
-### Cardinalidad Usuario–Conductor
+### Correo nullable → sí
 
-**Opciones:**
+`usuarios.correo` pasa a nullable. Coherente con login por cédula, reset sin
+email y reset asistido/offline.
 
-- 1 usuario ↔ 1 conductor.
-- 1 conductor ↔ 0..N usuarios.
-- Una persona puede tener cuenta de operador + cuenta de conductor.
+### Cardinalidad Usuario–Conductor → 1:1 opcional
 
-**Voto:** pendiente de input del usuario.
+Un usuario puede estar vinculado a 0 o 1 conductor. `conductor_id` pasa a
+UNIQUE (nullable) en la migración de A1.
 
 ## Decisiones diferidas
 
@@ -78,19 +85,21 @@
 | A4 | Enforcement real del primer login (backend + frontend) | `feat(auth): obliga cambio de contrasena en primer login` |
 | A5 | Gestión de usuarios (CRUD + roles + desactivación + auditoría visible) | `feat(usuarios): gestion de usuarios con auditoria` |
 
-## Riesgos si se ejecuta A1 sin resolver D3 y correo nullable
+**Nota A1:** la migración será nullable y sin backfill. `usuarios.cedula` tendrá
+UNIQUE parcial (`WHERE cedula IS NOT NULL`) y `usuarios.conductor_id` será
+UNIQUE nullable. La aplicación validará la correspondencia con
+`Conductor.cedula` cuando exista vínculo.
 
-- Backfill incorrecto de cédulas en usuarios existentes.
-- Uniqueness mal definida → conflictos con `Conductor.cedula`.
-- Autenticación inconsistente (algunos usuarios por correo, otros por cédula).
-- Migración difícil de revertir si la decisión final difiere.
-- Tests existentes pueden fallar por correo NOT NULL.
+## Riesgos mitigados / deuda de A1
+
+- **Backfill de cédulas:** resuelto con columnas nullable; los usuarios actuales quedan en `NULL`.
+- **Uniqueness:** UNIQUE parcial para cédulas no nulas y UNIQUE nullable para `conductor_id`.
+- **Autenticación inconsistente:** D1 establece coexistencia cédula/correo.
+- **Migración reversible:** cambios nullable, guards idempotentes y sin backfill de datos.
+- **Tests:** queda como deuda de A1 revisar consumidores que asumen `correo` NOT NULL.
 
 ## Preguntas abiertas para el negocio/contador
 
-1. **¿Existen cuentas de acceso para personas jurídicas (empresas/clientes)?** (bloqueante para D3)
-2. ¿Todos los usuarios son conductores, o hay operadores/admin/contador/clientes sin cédula de conductor?
-3. ¿Un conductor puede tener múltiples cuentas? ¿Una persona puede tener varias cuentas con roles distintos?
-4. Si hay personas jurídicas: ¿se identifican con NIT (`identificador_fiscal`) o con la cédula del representante legal?
-5. Retención de auditoría: ¿cuánto tiempo se conservan logs de login/reset/cambios sensibles?
-6. ¿Quién puede consultar la auditoría? ¿Admin solo, o también operador?
+1. ¿Cuánto tiempo se conservan los logs de login, reset y cambios sensibles?
+2. ¿Quién puede consultar la auditoría: solo admin o también operador?
+3. ¿Qué permisos exactos tendrá el operador para reset y cómo se protege al último administrador activo?

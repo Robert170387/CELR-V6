@@ -238,9 +238,11 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 Decisiones de negocio/arquitectura que quedan **abiertas**; no son decidibles por el agente. El
 consultor previo dejó el marco; quien retome el proyecto debe cerrarlas con el usuario:
 
-> **Módulo de Usuarios:** decisiones pendientes documentadas en `DECISIONES_MODULO_USUARIOS.md`.
-> Bloquea el inicio de A1 hasta cerrar D3 (fuente canónica de cédula), correo nullable y la
-> cardinalidad Usuario–Conductor.
+> **Módulo de Usuarios:** decisiones bloqueantes cerradas (2026-09-25):
+> no hay personas jurídicas, no todos son conductores, una persona = una
+> cuenta. Diseño: `usuarios.cedula UNIQUE NULL` + `conductor_id UNIQUE NULL` +
+> `correo` nullable. Sin `identificador_fiscal`. Plan A1–A5 desbloqueado; ver
+> `DECISIONES_MODULO_USUARIOS.md`.
 
 | # | Pregunta | Implica si se acepta |
 |---|---|---|

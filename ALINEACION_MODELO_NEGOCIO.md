@@ -214,7 +214,8 @@ el wiring en el payload y (opcional) una columna de KMS en la tabla.
 | **Movimientos bancarios — pantalla** | UI de `movimientos_bancarios` + cruce anticipos | Frontend |
 | **B1 / B3 / B4 / B5 / B6** | Decisiones de negocio/seguridad en `INSTRUCCIONES_OPENCODE.md` §8 | varía |
 | **B7 / B8 — contrato `owner` y saldos** | Decisiones de dominio pendientes; estado documentado, sin fixes | Pausado |
-| **Módulo de Usuarios** | Decision memo en `DECISIONES_MODULO_USUARIOS.md`; plan A0–A5 documentado | A1 bloqueada por D3 |
+| **Módulo de Usuarios** | Decisiones cerradas (2026-09-25); plan A1–A5 desbloqueado. Diseño en `DECISIONES_MODULO_USUARIOS.md` | A1 |
+
 
 ### B6 — Regla 4 (componente saldo): no forzable hoy
 
@@ -339,10 +340,10 @@ Reglas que aplican a la ejecución de la fase ODT (y a cualquier fase futura):
   propuestos registrados en §6.1. Sin cambios de código. Commit de esta sub-fase:
   `docs(liquidaciones): documenta contrato pendiente de owner y saldos`.
 
-- ✅ **Módulo de Usuarios — decision memo (2026-09-25):** `DECISIONES_MODULO_USUARIOS.md`
-  creado; D1, D2, D4, D5 y D9 con voto provisional; D3, correo nullable y cardinalidad
-  Usuario–Conductor bloquean A1. Commit de esta sub-fase:
-  `docs(usuarios): registra decisiones del modulo de Usuarios`.
+- ✅ **Módulo de Usuarios — decisiones cerradas (2026-09-25):** D3 = Opción C
+  simplificada (sin personas jurídicas); correo nullable; cardinalidad 1:1
+  opcional. Commit de esta sub-fase: `docs(usuarios): cierra decisiones
+  bloqueantes del modulo de Usuarios`.
 
 ---
 
