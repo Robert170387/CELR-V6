@@ -164,6 +164,10 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
   | 2 endpoints+tests | `61a56be` | `POST/GET /liquidaciones/cierre-mensual`, `POST /{id}/reabrir`, `POST /{id}/cancelar`, 409 en `/cerrar/{viaje_id}`; schemas `CierreMensualCreate/Response`; suite nueva `test_cierre_mensual.py` |
   | 3 UI frontend | `2131127` | `Liquidaciones.tsx`: «Cerrar mes» + «Meses cerrados» (Detalle/Reabrir/Cancelar); `api/index.ts` (`CierreMensual` + métodos). ⚠️ El commit (etiquetado `feat(frontend)`) arrastra el backend read-only `GET /cierres-mensuales` (soporte del listado) |
   | 4 docs | `8d72c3b` | Sección B2 en `ALINEACION_MODELO_NEGOCIO.md` §5 + pipeline/nota `PYTHONIOENCODING` aquí (§3) |
+- **B7/B8 — contrato de `owner` y saldos (documentado, pendiente de decisión):** `owner` está
+  permitido por schema/UI pero sin regla contable; `saldo_neto` designa tanto el saldo operativo
+  ODT como el neto del conductor. Estado, preguntas y defaults propuestos en
+  `ALINEACION_MODELO_NEGOCIO.md` §6.1. No hay fixes speculativos.
 
 - **FASE Flypass completa cerrada (2026-09-23):**
   | Sub-fase | Commit | Qué cambió |
@@ -229,7 +233,7 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
    para columnas, checks, FKs, nulabilidad, columnas generadas, vistas y drops. La validación
    obligatoria es `test_fresh_db.py` antes de cualquier commit de migración.
 
-## 8. Decisiones B1–B6 — preguntas al próximo consultor/agente
+## 8. Decisiones B1–B8 — preguntas al próximo consultor/agente
 
 Decisiones de negocio/arquitectura que quedan **abiertas**; no son decidibles por el agente. El
 consultor previo dejó el marco; quien retome el proyecto debe cerrarlas con el usuario:
@@ -241,6 +245,8 @@ consultor previo dejó el marco; quien retome el proyecto debe cerrarlas con el 
 | **B4** | ¿Rate limiter distribuido? | Redis o tabla DB → **migración** + infra. Solo multi-instancia. |
 | **B5** | ¿OCR Google Vision o Tesseract local? | Código comentado; activar = dependencia cloud + credenciales. |
 | **B6** | ¿Qué significa cerrar operativamente una ODT y cuándo puede hacerse sin saldo cubierto? | Regla 4: no forzar saldo; Flypass sí. Ver `ALINEACION_MODELO_NEGOCIO.md` §6. |
+| **B7** | ¿Qué significa contablemente `asumido_por='owner'`? | Definir su tratamiento en utilidad, liquidación y consolidado, o eliminarlo del schema/UI. Hoy hay 0 filas. |
+| **B8** | ¿`saldo_neto` devuelto y persistido son la misma magnitud? | Renombrar contrato/UI para distinguir saldo operativo ODT y neto del conductor, o definir una fórmula canónica. |
 
 > **B2 quedó resuelta (2026-09-23):** persiste el cierre mensual COMPENSADO_RC con **Opción 1**
 > (reforzar `liquidaciones_conductores`, D5-c → 409 preventivo, reabrir/cancelar con rastro). Ver
@@ -255,4 +261,5 @@ consultor previo dejó el marco; quien retome el proyecto debe cerrarlas con el 
 
 Prioridad actual: de las restantes, **B3 y B4** son deuda de seguridad/arquitectura al escalar;
 **B1** y **B5** cuando surja la necesidad. **B6** requiere decisión de negocio antes de
-forzar el componente saldo de la Regla 4.
+forzar el componente saldo de la Regla 4. **B7 y B8** requieren decisión de negocio/contador
+antes de tocar `owner`, nombres de saldo o fórmulas; quedan documentados en §6.1.

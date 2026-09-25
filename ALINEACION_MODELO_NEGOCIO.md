@@ -213,6 +213,7 @@ el wiring en el payload y (opcional) una columna de KMS en la tabla.
 |---|---|---|
 | **Movimientos bancarios — pantalla** | UI de `movimientos_bancarios` + cruce anticipos | Frontend |
 | **B1 / B3 / B4 / B5 / B6** | Decisiones de negocio/seguridad en `INSTRUCCIONES_OPENCODE.md` §8 | varía |
+| **B7 / B8 — contrato `owner` y saldos** | Decisiones de dominio pendientes; estado documentado, sin fixes | Pausado |
 
 ### B6 — Regla 4 (componente saldo): no forzable hoy
 
@@ -228,6 +229,82 @@ el wiring en el payload y (opcional) una columna de KMS en la tabla.
 
 **Preguntas de negocio abiertas:** qué significa cerrar una ODT operativamente, cuándo es
 aceptable cerrar sin saldo cubierto y si los ingresos se cargarán sistemáticamente en el futuro.
+
+### 6.1 Contrato pendiente — `asumido_por='owner'` y `saldo_neto`
+
+> **Estado:** documentado el 2026-09-25; no se aplicaron fixes especulativos. Las decisiones
+> siguientes requieren negocio/contador.
+
+#### B-owner — `asumido_por='owner'`
+
+**Estado actual.** El schema (`GastoCreate`, `GastoUpdate`) permite
+`{"empresa", "owner", "conductor"}` y la UI de `Gastos.tsx` ofrece los tres valores. El modelo
+SQLAlchemy no tiene `CheckConstraint`; la validación vive solo en Pydantic. `recalcular_viaje`
+suma todos los gastos vinculados sin filtrar por `asumido_por`. `_calcular_servidor` solo agrega
+`empresa` y `conductor`, por lo que `owner` se pierde en sus agregados. `consolidar_compensado`
+no consulta gastos. Hoy hay 0 filas con `asumido_por='owner'`, no hay tests que lo creen y no
+existe documentación vigente que defina su semántica.
+
+**Preguntas abiertas:**
+
+1. ¿Qué significa contablemente `owner`? ¿Propietario de la carga, cuenta interna o valor legacy?
+2. ¿Debe entrar en la utilidad de la ODT, en la liquidación del conductor, en el consolidado
+   mensual o en ninguno?
+
+**Default propuesto (NO decisión):** eliminar `owner` del dominio hasta que exista un caso real.
+La evidencia actual (0 filas, 0 tests, 0 documentación) sugiere una intención abandonada.
+
+#### B-saldo — `saldo_neto` designa dos conceptos distintos
+
+**Estado actual.** `_calcular_servidor.saldo_neto`, devuelto por
+`GET /liquidaciones/calcular/{viaje_id}`, es:
+
+```text
+flete_neto − gastos_empresa − anticipos − comision_flete
+```
+
+Es un **saldo operativo de la ODT**. En cambio, `LiquidacionConductor.saldo_neto`, persistido
+como `GENERATED STORED`, suma haberes (comisión, bonificaciones, viáticos, otros haberes,
+salario, auxilio y papelería) y resta deducciones (anticipos entregados, gastos a cargo del
+conductor, préstamos, otros descuentos, salud/pensión y retiros de tarjeta): es el **neto a pagar
+al conductor**.
+
+Por esa colisión de nombres, `GET /liquidaciones/calcular` y `POST /liquidaciones/cerrar`
+pueden mostrar valores distintos bajo la misma etiqueta. En cierre individual,
+`comision_flete` representa la comisión de la ODT actual y `comisiones_total` la suma del
+período; en cierre mensual se igualan intencionalmente. No existe un test que exija igualdad
+entre el saldo devuelto y el persistido para el cierre individual.
+
+**Preguntas abiertas:**
+
+3. ¿`_calcular_servidor.saldo_neto` debe seguir siendo el saldo operativo de la ODT?
+4. ¿`LiquidacionConductor.saldo_neto` debe ser exclusivamente el neto del conductor?
+5. ¿La UI debe mostrar dos nombres distintos, por ejemplo «Saldo operativo de la ODT» y
+   «Neto a pagar del conductor»?
+6. ¿La comisión de una liquidación individual debe representar la ODT actual o la suma del
+   período?
+7. ¿Qué valor debe persistirse autoritativamente en `comision_flete` frente a
+   `comisiones_total`?
+
+**Defaults propuestos (NO decisiones):**
+
+- Renombrar el saldo devuelto a `saldo_operativo_odt`.
+- Mantener `LiquidacionConductor.saldo_neto` como neto exclusivo del conductor.
+- Mostrar dos nombres distintos en la UI.
+- Mantener `comision_flete` como comisión de la ODT actual y `comisiones_total` como información
+  del período.
+- No cambiar la persistencia hasta cerrar las decisiones anteriores.
+
+#### Riesgos de aplicar fixes antes de decidir
+
+- Eliminar `owner` podría romper un caso legítimo no documentado.
+- Renombrar `saldo_neto` antes de decidir si ambas magnitudes deben coincidir puede crear una
+  migración de contrato prematura.
+- Unificar fórmulas sin definir la magnitud canónica puede alterar liquidaciones históricas.
+- Cambiar `comision_flete`/`comisiones_total` sin una política explícita puede afectar cierres
+  ya emitidos.
+
+**Decisión de esta sub-fase:** documentar y pausar; no tocar código, schema, modelos ni UI.
 
 ---
 
@@ -255,6 +332,11 @@ Reglas que aplican a la ejecución de la fase ODT (y a cualquier fase futura):
   contra el brief original en §9: solo 4 inputs ODT están genuinamente ausentes del modelo
   (`combustible_total_facturas`, `peajes_efectivo`, `peajes_tag`, `otros_gastos_ruta` — §3.1,
   fuera de alcance, se modelan vía `gastos` + `flypass`).
+
+- ✅ **Contrato B7/B8 documentado (2026-09-25):** `asumido_por='owner'` y la colisión de
+  `saldo_neto` entre saldo operativo de ODT y neto del conductor; preguntas y defaults
+  propuestos registrados en §6.1. Sin cambios de código. Commit de esta sub-fase:
+  `docs(liquidaciones): documenta contrato pendiente de owner y saldos`.
 
 ---
 
