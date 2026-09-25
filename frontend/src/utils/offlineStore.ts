@@ -1,7 +1,7 @@
-import apiClient from '@/api/client'
+import apiClient, { getAccessToken } from '@/api/client'
 
 const DB_NAME = 'celr_v6_offline'
-const DB_VERSION = 2
+const DB_VERSION = 3
 const STORE_NAME = 'pending_transactions'
 const DISCARDED_STORE_NAME = 'discarded_transactions'
 
@@ -15,7 +15,16 @@ export interface PendingTransaction {
   data: any
   timestamp: number
   synced: boolean
+  /** Dueño de la transacción. null significa registro legacy en cuarentena. */
+  usuario_id: number | null
   estado?: TxEstado
+}
+
+export type NewPendingTransaction = Omit<
+  PendingTransaction,
+  'id' | 'timestamp' | 'synced' | 'estado' | 'usuario_id'
+> & {
+  usuario_id: number
 }
 
 export interface DiscardedTransaction {
@@ -40,31 +49,57 @@ function openDB(): Promise<IDBDatabase> {
     }
     const request = indexedDB.open(DB_NAME, DB_VERSION)
     request.onerror = () => reject(request.error)
+    request.onblocked = () =>
+      reject(new Error('La cola offline está bloqueada por otra pestaña; ciérrala y reintenta'))
     request.onupgradeneeded = (event) => {
       const database = (event.target as IDBOpenDBRequest).result
-      if (database.objectStoreNames.contains(STORE_NAME) && !database.objectStoreNames.contains(DISCARDED_STORE_NAME)) {
-        // El store de cola ya existe: solo se añade el de descartados en la v2.
-        const disc = database.createObjectStore(DISCARDED_STORE_NAME, {
+      const transaction = request.transaction
+      if (!transaction) {
+        throw new Error('No se pudo iniciar la actualización de IndexedDB')
+      }
+
+      let pendingStore: IDBObjectStore
+      if (database.objectStoreNames.contains(STORE_NAME)) {
+        pendingStore = transaction.objectStore(STORE_NAME)
+      } else {
+        pendingStore = database.createObjectStore(STORE_NAME, {
           keyPath: 'id',
           autoIncrement: true,
         })
-        disc.createIndex('type', 'type', { unique: false })
-        disc.createIndex('timestamp', 'timestamp', { unique: false })
-        return
+        pendingStore.createIndex('type', 'type', { unique: false })
+        // Se conserva el índice histórico 'synced', aunque no se consulta con
+        // IDBKeyRange.only() porque booleanos no son claves válidas.
+        pendingStore.createIndex('synced', 'synced', { unique: false })
+        pendingStore.createIndex('timestamp', 'timestamp', { unique: false })
       }
-      if (!database.objectStoreNames.contains(STORE_NAME)) {
-        const store = database.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true })
-        store.createIndex('type', 'type', { unique: false })
-        store.createIndex('synced', 'synced', { unique: false })
-        store.createIndex('timestamp', 'timestamp', { unique: false })
+
+      // Índice numérico válido para ownership. No se usa para migrar ni para
+      // reemplazar el filtrado en memoria de los booleanos.
+      if (!pendingStore.indexNames.contains('usuario_id')) {
+        pendingStore.createIndex('usuario_id', 'usuario_id', { unique: false })
       }
+
       if (!database.objectStoreNames.contains(DISCARDED_STORE_NAME)) {
-        const disc = database.createObjectStore(DISCARDED_STORE_NAME, {
+        const discardedStore = database.createObjectStore(DISCARDED_STORE_NAME, {
           keyPath: 'id',
           autoIncrement: true,
         })
-        disc.createIndex('type', 'type', { unique: false })
-        disc.createIndex('timestamp', 'timestamp', { unique: false })
+        discardedStore.createIndex('type', 'type', { unique: false })
+        discardedStore.createIndex('timestamp', 'timestamp', { unique: false })
+      }
+
+      // Los registros anteriores a v3 no tienen dueño. Se conservan y se
+      // marcan como cuarentena; nunca se reasignan ni se sincronizan.
+      const cursorRequest = pendingStore.openCursor()
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result
+        if (!cursor) return
+        const record = cursor.value as PendingTransaction
+        const owner = record.usuario_id
+        if (typeof owner !== 'number' || !Number.isInteger(owner) || owner <= 0) {
+          cursor.update({ ...record, usuario_id: null })
+        }
+        cursor.continue()
       }
     }
     request.onsuccess = () => {
@@ -74,9 +109,7 @@ function openDB(): Promise<IDBDatabase> {
   })
 }
 
-export async function addPendingTransaction(
-  tx: Omit<PendingTransaction, 'id' | 'timestamp' | 'synced' | 'estado'>
-): Promise<number> {
+export async function addPendingTransaction(tx: NewPendingTransaction): Promise<number> {
   const database = await openDB()
   return new Promise((resolve, reject) => {
     const store = getStore(database, STORE_NAME, 'readwrite')
@@ -86,12 +119,16 @@ export async function addPendingTransaction(
   })
 }
 
-export async function getPendingTransactions(): Promise<PendingTransaction[]> {
+export async function getPendingTransactions(usuarioId: number): Promise<PendingTransaction[]> {
+  validarUsuarioId(usuarioId)
   const database = await openDB()
   return new Promise((resolve, reject) => {
     const store = getStore(database, STORE_NAME, 'readonly')
     const request = store.getAll()
-    request.onsuccess = () => resolve(request.result as PendingTransaction[])
+    request.onsuccess = () => {
+      const items = request.result as PendingTransaction[]
+      resolve(items.filter((t) => t.usuario_id === usuarioId))
+    }
     request.onerror = () => reject(request.error)
   })
 }
@@ -148,31 +185,93 @@ export async function removePendingTransaction(id: number): Promise<void> {
 // consultar con IDBKeyRange.only(false/true): lanza DataError. Se filtra en
 // memoria sobre getAll(); el índice queda declarado pero sin uso (ver §4 de
 // INSTRUCCIONES_OPENCODE.md).
-export async function getUnsyncedTransactions(): Promise<PendingTransaction[]> {
+function validarUsuarioId(usuarioId: number): void {
+  if (!Number.isInteger(usuarioId) || usuarioId <= 0) {
+    throw new Error('Se requiere un usuario autenticado para gestionar la cola offline')
+  }
+}
+
+// El filtro por dueño evita enviar una cola ajena; esta segunda comprobación
+// cubre el caso en que la cuenta cambia mientras una sincronización está en
+// vuelo. No es una frontera de seguridad: solo evita una carrera del cliente.
+function usuarioIdDeSesion(): number | null {
+  const token = getAccessToken()
+  if (!token) return null
+  try {
+    const payload = token.split('.')[1]
+    if (!payload) return null
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=')
+    const claims = JSON.parse(atob(padded)) as { usuario_id?: unknown }
+    const id = Number(claims.usuario_id)
+    return Number.isInteger(id) && id > 0 ? id : null
+  } catch {
+    return null
+  }
+}
+
+export async function getUnsyncedTransactions(usuarioId: number): Promise<PendingTransaction[]> {
+  validarUsuarioId(usuarioId)
   const database = await openDB()
   return new Promise((resolve, reject) => {
     const store = getStore(database, STORE_NAME, 'readonly')
     const request = store.getAll()
     request.onsuccess = () => {
       const items = request.result as PendingTransaction[]
-      resolve(items.filter((t) => !t.synced))
+      resolve(items.filter((t) => !t.synced && t.usuario_id === usuarioId))
     }
     request.onerror = () => reject(request.error)
   })
 }
 
-export async function clearSyncedTransactions(): Promise<void> {
+export async function getQuarantinedTransactions(): Promise<PendingTransaction[]> {
+  const database = await openDB()
+  return new Promise((resolve, reject) => {
+    const store = getStore(database, STORE_NAME, 'readonly')
+    const request = store.getAll()
+    request.onsuccess = () => {
+      const items = request.result as PendingTransaction[]
+      const quarantined = items.filter((t) => t.usuario_id === null)
+      quarantined.sort((a, b) => a.timestamp - b.timestamp)
+      resolve(quarantined)
+    }
+    request.onerror = () => reject(request.error)
+  })
+}
+
+// Solo devuelve un conteo: las transacciones de otra cuenta no se exponen a
+// la UI ni se pueden sincronizar con la sesión actual.
+export async function getForeignPendingCount(usuarioId: number): Promise<number> {
+  validarUsuarioId(usuarioId)
+  const database = await openDB()
+  return new Promise((resolve, reject) => {
+    const store = getStore(database, STORE_NAME, 'readonly')
+    const request = store.getAll()
+    request.onsuccess = () => {
+      const items = request.result as PendingTransaction[]
+      resolve(
+        items.filter(
+          (t) => !t.synced && typeof t.usuario_id === 'number' && t.usuario_id !== usuarioId
+        ).length
+      )
+    }
+    request.onerror = () => reject(request.error)
+  })
+}
+
+export async function clearSyncedTransactions(usuarioId: number): Promise<void> {
+  validarUsuarioId(usuarioId)
   const database = await openDB()
   return new Promise((resolve, reject) => {
     const store = getStore(database, STORE_NAME, 'readwrite')
     // Mismo motivo que getUnsyncedTransactions(): el índice 'synced' con claves
-    // booleanas no es consultable; se borran los registros ya sincronizados
-    // filtrando en memoria.
+    // booleanas no es consultable; se borran en memoria. El filtro de dueño
+    // evita tocar registros de otra cuenta o de la cuarentena legacy.
     const request = store.getAll()
     request.onsuccess = () => {
       const items = request.result as PendingTransaction[]
       for (const item of items) {
-        if (item.synced && item.id !== undefined) {
+        if (item.synced && item.usuario_id === usuarioId && item.id !== undefined) {
           store.delete(item.id)
         }
       }
@@ -246,13 +345,22 @@ export interface SyncResult {
   synced: number
   failed: number
   pending: number
+  /** Registros legacy sin usuario_id; se conservan para revisión. */
+  quarantined: number
+  /** Registros pendientes que pertenecen a otra cuenta; solo se expone el conteo. */
+  foreignPending: number
 }
 
-export async function encolarOffline(type: TransactionType, data: any): Promise<number> {
-  const id = await addPendingTransaction({ type, data })
+export async function encolarOffline(
+  type: TransactionType,
+  data: any,
+  usuarioId: number
+): Promise<number> {
+  validarUsuarioId(usuarioId)
+  const id = await addPendingTransaction({ type, data, usuario_id: usuarioId })
   window.dispatchEvent(new Event('celr:queued'))
   if (navigator.onLine) {
-    void syncPendingTransactions().finally(() => window.dispatchEvent(new Event('celr:queued')))
+    void syncPendingTransactions(usuarioId).finally(() => window.dispatchEvent(new Event('celr:queued')))
   }
   return id
 }
@@ -289,17 +397,40 @@ async function descartarConLog(
   window.dispatchEvent(new Event('celr:discarded'))
 }
 
-export async function syncPendingTransactions(): Promise<SyncResult> {
-  if (!navigator.onLine) {
-    return { synced: 0, failed: 0, pending: (await getUnsyncedTransactions()).length }
+export async function syncPendingTransactions(usuarioId: number): Promise<SyncResult> {
+  validarUsuarioId(usuarioId)
+  const [unsynced, quarantined, foreignPending] = await Promise.all([
+    getUnsyncedTransactions(usuarioId),
+    getQuarantinedTransactions(),
+    getForeignPendingCount(usuarioId),
+  ])
+  const baseResult: SyncResult = {
+    synced: 0,
+    failed: 0,
+    pending: unsynced.length,
+    quarantined: quarantined.length,
+    foreignPending,
   }
 
-  const unsynced = await getUnsyncedTransactions()
+  // Si el token actual ya no pertenece al dueño solicitado, no se intenta
+  // enviar nada. La cola queda intacta para la sesión correcta.
+  if (usuarioIdDeSesion() !== usuarioId) {
+    return baseResult
+  }
+
+  if (!navigator.onLine) {
+    return baseResult
+  }
+
   let synced = 0
   let failed = 0
 
   for (const tx of unsynced) {
-    const id = tx.id!
+    // Defensa adicional: aunque getUnsynced ya filtró, no enviar nunca una
+    // transacción cuyo dueño no coincida con la sesión activa.
+    if (tx.usuario_id !== usuarioId || tx.id === undefined) continue
+    if (usuarioIdDeSesion() !== usuarioId) break
+    const id = tx.id
     try {
       await enviarTransaccion(tx)
       // ÉXITO: el servidor confirmó (2xx). La transacción sale de la cola.
@@ -338,8 +469,20 @@ export async function syncPendingTransactions(): Promise<SyncResult> {
     }
   }
 
-  // Limpieza de registros legacy marcados como 'synced'.
-  await clearSyncedTransactions()
+  // Solo se limpian los registros ya sincronizados del usuario activo. Las
+  // cuentas ajenas y la cuarentena legacy permanecen intactas.
+  await clearSyncedTransactions(usuarioId)
 
-  return { synced, failed, pending: (await getUnsyncedTransactions()).length }
+  const [remaining, remainingQuarantined, remainingForeign] = await Promise.all([
+    getUnsyncedTransactions(usuarioId),
+    getQuarantinedTransactions(),
+    getForeignPendingCount(usuarioId),
+  ])
+  return {
+    synced,
+    failed,
+    pending: remaining.length,
+    quarantined: remainingQuarantined.length,
+    foreignPending: remainingForeign,
+  }
 }

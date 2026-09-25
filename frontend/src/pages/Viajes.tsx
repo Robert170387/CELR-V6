@@ -282,6 +282,11 @@ const Viajes: React.FC = () => {
       setFormError(`Complete los campos obligatorios para estado "${form.estado}": ${nombres}`)
       return
     }
+    if (!user?.id) {
+      setFormError('No hay una sesión activa para guardar en la cola offline.')
+      return
+    }
+    const usuarioId = user.id
     setSubmitting(true)
     const payload: Record<string, any> = {
       vehiculo_id: Number(form.vehiculo_id),
@@ -322,7 +327,7 @@ const Viajes: React.FC = () => {
     } catch (err: any) {
       if (esErrorDeRed(err)) {
         try {
-          const colaId = await encolarOffline('viaje', payload)
+          const colaId = await encolarOffline('viaje', payload, usuarioId)
           setSuccess(
             `Sin conexión. ODT guardada en cola local (#${colaId}); se enviará automáticamente al recuperar la red.`
           )

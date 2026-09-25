@@ -5,6 +5,7 @@ import Pagination from '@/components/Pagination'
 import SelectorCiudad from '@/components/SelectorCiudad'
 import { extraerMensajeError, formatearMoneda, esErrorDeRed } from '@/utils/format'
 import { encolarOffline } from '@/utils/offlineStore'
+import { useAuth } from '@/context/AuthContext'
 
 interface Viaje {
   id: number
@@ -122,6 +123,7 @@ const camposEdicionPara = (categoria: string) => {
 
 const Gastos: React.FC = () => {
   const PAGE_SIZE = 100
+  const { user } = useAuth()
   const [gastos, setGastos] = useState<Gasto[]>([])
   const [totalGastos, setTotalGastos] = useState(0)
   const [pagina, setPagina] = useState(1)
@@ -213,6 +215,11 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
       setFormError('Selecciona un vehículo')
       return
     }
+    if (!user?.id) {
+      setFormError('No hay una sesión activa para guardar en la cola offline.')
+      return
+    }
+    const usuarioId = user.id
     setSubmitting(true)
     const payload: Record<string, any> = {
       vehiculo_id: Number(form.vehiculo_id),
@@ -254,7 +261,7 @@ const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement 
     } catch (err) {
       if (esErrorDeRed(err)) {
         try {
-          const colaId = await encolarOffline('gasto', payload)
+          const colaId = await encolarOffline('gasto', payload, usuarioId)
           setSuccess(
             `Sin conexión. Gasto guardado en cola local (#${colaId}); se enviará automáticamente al recuperar la red.`
           )

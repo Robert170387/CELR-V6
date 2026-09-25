@@ -88,6 +88,8 @@ const SyncQueueDrawer: React.FC<{ abierto: boolean; onClose: () => void }> = ({ 
     isOnline,
     isSyncing,
     pendientes,
+    quarantined,
+    foreignPendingCount,
     descartados,
     discardedCount,
     sync,
@@ -166,6 +168,48 @@ const SyncQueueDrawer: React.FC<{ abierto: boolean; onClose: () => void }> = ({ 
             ))
           )}
 
+          {foreignPendingCount > 0 && (
+            <div className="mt-4 p-3 bg-amber-950/30 border border-amber-900/40 rounded-lg">
+              <div className="flex items-center gap-2 text-amber-300 text-sm font-semibold">
+                <AlertTriangle size={15} />
+                Pendientes de otra cuenta ({foreignPendingCount})
+              </div>
+              <p className="text-xs text-amber-200/80 mt-1">
+                No se sincronizarán con esta sesión. Volvé a iniciar sesión con la cuenta propietaria.
+              </p>
+            </div>
+          )}
+
+          {quarantined.length > 0 && (
+            <div className="mt-4">
+              <div className="flex items-center gap-2 mb-2 text-xs font-semibold tracking-widest text-amber-400 uppercase">
+                <AlertTriangle size={12} />
+                Cuarentena legacy ({quarantined.length})
+              </div>
+              <p className="text-xs text-slate-500 mb-2">
+                Registros anteriores sin propietario: se conservan, pero no se sincronizan.
+              </p>
+              <div className="space-y-2">
+                {quarantined.map((tx) => (
+                  <div key={tx.id} className="p-3 bg-amber-950/20 border border-amber-900/30 rounded-lg">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-amber-300 capitalize">
+                        {etiquetaTipo[tx.type]?.label || tx.type}
+                      </span>
+                      <span className="text-xs text-slate-500">
+                        {new Date(tx.timestamp).toLocaleString('es-CO', {
+                          dateStyle: 'short',
+                          timeStyle: 'short',
+                        })}
+                      </span>
+                    </div>
+                    <p className="text-sm text-slate-300 mt-2">{resumenItem(tx)}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {descartados.length > 0 && (
             <div className="mt-4">
               <div className="flex items-center justify-between mb-2">
@@ -230,7 +274,15 @@ const resumenDiscartado = (d: DiscardedTransaction): string => {
 }
 
 const StatusIndicator: React.FC = () => {
-  const { isOnline, isSyncing, pendingCount, pendingAuthCount, sync } = useOfflineSync()
+  const {
+    isOnline,
+    isSyncing,
+    pendingCount,
+    pendingAuthCount,
+    quarantinedCount,
+    foreignPendingCount,
+    sync,
+  } = useOfflineSync()
   const [drawerAbierto, setDrawerAbierto] = useState(false)
 
   const statusColor = isOnline ? 'bg-green-500' : 'bg-red-500'
@@ -253,6 +305,26 @@ const StatusIndicator: React.FC = () => {
           >
             <AlertTriangle size={12} />
             {pendingAuthCount} requieren iniciar sesión
+          </button>
+        )}
+        {foreignPendingCount > 0 && (
+          <button
+            onClick={() => setDrawerAbierto(true)}
+            className="flex items-center gap-1 px-2 py-1 bg-amber-500/20 hover:bg-amber-500/40 text-amber-400 rounded-md text-xs transition-colors"
+            title="Hay pendientes que pertenecen a otra cuenta; no se sincronizarán aquí"
+          >
+            <AlertTriangle size={12} />
+            {foreignPendingCount} de otra cuenta
+          </button>
+        )}
+        {quarantinedCount > 0 && (
+          <button
+            onClick={() => setDrawerAbierto(true)}
+            className="flex items-center gap-1 px-2 py-1 bg-yellow-500/20 hover:bg-yellow-500/40 text-yellow-300 rounded-md text-xs transition-colors"
+            title="Registros legacy sin propietario; se conservan para revisión"
+          >
+            <AlertTriangle size={12} />
+            {quarantinedCount} en cuarentena
           </button>
         )}
         {pendingCount > 0 ? (
