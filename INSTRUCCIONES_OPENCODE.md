@@ -238,6 +238,10 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 Decisiones de negocio/arquitectura que quedan **abiertas**; no son decidibles por el agente. El
 consultor previo dejó el marco; quien retome el proyecto debe cerrarlas con el usuario:
 
+> **Módulo de Usuarios:** decisiones pendientes documentadas en `DECISIONES_MODULO_USUARIOS.md`.
+> Bloquea el inicio de A1 hasta cerrar D3 (fuente canónica de cédula), correo nullable y la
+> cardinalidad Usuario–Conductor.
+
 | # | Pregunta | Implica si se acepta |
 |---|---|---|
 | **B1** | ¿Rol `cliente` en seed? | Lógica de seed + credencial de prueba documentada. Riesgo mínimo. |
