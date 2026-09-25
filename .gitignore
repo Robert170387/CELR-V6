@@ -47,6 +47,10 @@ backend_log_tail.txt
 *.sqlite3
 *.sqlite3-journal
 
+# Backups locales de PostgreSQL (nunca versionar)
+*.dump
+celr_v6_backup*.dump
+
 # --- Editores / SO ----------------------------------------------------------
 .vscode/
 .idea/
