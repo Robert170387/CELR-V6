@@ -18,11 +18,12 @@ import {
   WifiOff,
   AlertTriangle,
   FileSpreadsheet,
+  Users,
 } from 'lucide-react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { useOfflineSync } from '@/utils/useOfflineSync'
-import { menuPermitido, esRolFinanzas, esRolRecursos } from '@/utils/rbac'
+import { menuPermitido, esRolFinanzas, esRolRecursos, esRolGestionUsuarios } from '@/utils/rbac'
 import { PendingTransaction, DiscardedTransaction } from '@/utils/offlineStore'
 
 interface LayoutProps {
@@ -59,6 +60,10 @@ const grupoRecursos: MenuItem[] = [
   { path: '/maestras', label: 'Flota & Mantenimiento', icon: Database, tab: 'vehiculos' },
   { path: '/maestras', label: 'Personal', icon: Shield, tab: 'conductores' },
   { path: '/maestras', label: 'Terceros', icon: Receipt, tab: 'proveedores' },
+]
+
+const grupoAdministracion: MenuItem[] = [
+  { path: '/gestion-usuarios', label: 'Gestión de Usuarios', icon: Users },
 ]
 
 const etiquetaTipo: Record<string, { label: string; color: string }> = {
@@ -386,6 +391,15 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { titulo: 'OPERACIÓN', visible: true, items: menuPermitido(grupoOperacion, user?.rol) },
     { titulo: 'FINANZAS Y CIERRE', visible: esRolFinanzas(user?.rol), items: grupoFinanzas },
     { titulo: 'RECURSOS Y FLOTA', visible: esRolRecursos(user?.rol), items: grupoRecursos },
+    // A5.3 — Grupo propio: gestionar cuentas no es operacion ni finanzas ni
+    // flota, y su visibilidad usa ROLES_GESTION_USUARIOS (que refleja el
+    // ROLES_RESET_PERMITIDOS del backend, incluye al contador), no
+    // esRolRecursos (que lo excluye).
+    {
+      titulo: 'ADMINISTRACIÓN',
+      visible: esRolGestionUsuarios(user?.rol),
+      items: menuPermitido(grupoAdministracion, user?.rol),
+    },
   ]
 
   const itemActivoGlobal = grupos.flatMap((g) => g.items).find(itemActivo)

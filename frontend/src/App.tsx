@@ -13,6 +13,7 @@ import Ingresos from '@/pages/Ingresos'
 import Flypass from '@/pages/Flypass'
 import Maestras from '@/pages/Maestras'
 import Layout from '@/components/Layout'
+import GestionUsuarios from '@/pages/GestionUsuarios'
 import { puedeAccederModulo } from '@/utils/rbac'
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -96,6 +97,14 @@ const AppRoutes: React.FC = () => {
                   element={
                     <RequireRole path="/maestras">
                       <Maestras />
+                    </RequireRole>
+                  }
+                />
+                <Route
+                  path="/gestion-usuarios"
+                  element={
+                    <RequireRole path="/gestion-usuarios">
+                      <GestionUsuarios />
                     </RequireRole>
                   }
                 />

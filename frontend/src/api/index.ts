@@ -213,6 +213,86 @@ export const flypassAPI = {
     apiClient.patch(`/flypass/${id}`, body).then((r) => r.data as FlypassListItem),
 }
 
+export interface UsuarioListItem {
+  id: number
+  cedula: string | null
+  correo: string | null
+  rol: string
+  conductor_id: number | null
+  activo: boolean
+  debe_cambiar_contrasena: boolean
+  ultimo_acceso?: string | null
+  creado_en: string
+}
+
+export interface UsuarioTemporalResponse {
+  usuario_id: number
+  cedula?: string | null
+  correo?: string | null
+  rol?: string
+  contrasena_temporal: string
+  mensaje: string
+  debe_cambiar_contrasena: boolean
+}
+
+export interface ResetCodigoResponse {
+  usuario_id: number
+  correo: string | null
+  codigo: string
+  expira_en: string
+  mensaje: string
+}
+
+export interface UsuarioAccionResponse {
+  usuario_id: number
+  activo: boolean
+  rol: string
+  era_ultimo_admin: boolean
+  mensaje: string
+}
+
+// A5.3 — Consume el CRUD de A5.1/A5.2. El listado usa conTotal(), que lee el
+// total del header X-Total-Count; hay que pasararle el tipo explicito porque su
+// parametro es `any` y TypeScript no puede inferirlo desde ahi.
+export const usuariosAPI = {
+  listar: (params?: { skip?: number; limit?: number; activo?: boolean; rol?: string }) =>
+    apiClient
+      .get<UsuarioListItem[]>('/usuarios', { params })
+      .then((r) => conTotal<UsuarioListItem>(r)),
+  crear: (data: {
+    cedula: string
+    correo?: string | null
+    rol: string
+    conductor_id?: number | null
+  }) => apiClient.post<UsuarioTemporalResponse>('/usuarios', data).then((r) => r.data),
+  actualizar: (
+    id: number,
+    data: { correo?: string | null; cedula?: string | null; conductor_id?: number | null }
+  ) => apiClient.put<UsuarioListItem>(`/usuarios/${id}`, data).then((r) => r.data),
+  activar: (id: number) =>
+    apiClient.post<UsuarioAccionResponse>(`/usuarios/${id}/activar`).then((r) => r.data),
+  desactivar: (id: number, confirmacion: string, motivo?: string) =>
+    apiClient
+      .post<UsuarioAccionResponse>(`/usuarios/${id}/desactivar`, { confirmacion, motivo })
+      .then((r) => r.data),
+  degradar: (id: number, nuevo_rol: string, confirmacion: string, motivo?: string) =>
+    apiClient
+      .post<UsuarioAccionResponse>(`/usuarios/${id}/degradar`, {
+        confirmacion,
+        nuevo_rol: nuevo_rol,
+        motivo,
+      })
+      .then((r) => r.data),
+  resetPassword: (id: number) =>
+    apiClient
+      .post<UsuarioTemporalResponse>(`/usuarios/${id}/reset-password`)
+      .then((r) => r.data),
+  resetCodigo: (id: number) =>
+    apiClient
+      .post<ResetCodigoResponse>(`/usuarios/${id}/reset-codigo`)
+      .then((r) => r.data),
+}
+
 export interface CompensadoMensual {
   conductor_id: number
   periodo_inicio: string
