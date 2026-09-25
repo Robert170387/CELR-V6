@@ -19,7 +19,7 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 
 ## 3. Gates antes de commitear
 
-1. **Backend:** las **14** suites `backend/scripts/test_*.py` en verde (desde `backend/`, con
+1. **Backend:** las **18** suites `backend/scripts/test_*.py` en verde (desde `backend/`, con
    `PYTHONPATH=.` y `DATABASE_URL` → `:5433`), con el venv:
    `venv\Scripts\python.exe scripts\test_<suite>.py` — los scripts imprimen checks `✓`/`✗`;
    bajo pipe en Windows ejecutar con `$env:PYTHONIOENCODING="utf-8"` (cp1252 rompe esos
@@ -35,6 +35,13 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
    TR-1..TR-13 — respuesta genérica sin enumerar cuentas, el token nunca filtrado por la API,
    expiración, uso único, revocación del token anterior, límite de intentos, buckets de rate
    limit separados, y el guard 503 en producción.
+   `test_primer_login.py` es la suite 15: enforcement del primer login (A4), TA-FL1..TA-FL9.
+   `test_reset_asistido.py` es la suite 16: reset admin con contraseña temporal (A3.2),
+   TRA-1..TRA-16 — matriz de roles de los 6, anti-escalada, la temporal nunca en logs ni URL.
+   `test_reset_codigo.py` es la suite 17: reset por código offline (A3.3), TRC-1..TRC-16 —
+   agotamiento de intentos, 401 genérico, el código nunca en logs ni en claro en la BD.
+   `test_auditoria.py` es la suite 18: auditoría de eventos (A3.4), TAUD-1..TAUD-12 — verifica
+   contenido de las filas y que ningún secreto quede en el rastro.
 2. **Humo:** `venv\Scripts\python.exe scripts\smoke.py` → `[SMOKE OK]`.
 3. **E2E** (servidor vivo, p. ej. Docker `:8001`):
    `$env:CELR_BASE_URL="http://localhost:8001"; $env:PYTHONUTF8="1";
@@ -64,6 +71,26 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
   tiene `correo IS NULL`, así que un cleanup que lo busca por `correo` no lo encuentra nunca y deja
   su `cedula` (UNIQUE parcial) plantada, rompiendo la corrida siguiente con `UniqueViolation`.
   **Regla: rastrear los temporales por `id` y barrer huérfanos por un campo único.**
+- **IP-real-detras-de-proxy:** `backend/Dockerfile:40` corre `uvicorn` **sin** `--proxy-headers
+  --forwarded-allow-ips=*`. En Render, `request.client.host` devuelve la IP **del proxy**, no la del
+  cliente. Afecta dos cosas de seguridad: el rate limit de `POST /auth/reset-codigo` se vuelve una
+  cubeta global (por eso su umbral es generoso y no estricto), y la columna `ip` de `auditoria_evento`
+  guarda un valor que **no** identifica al usuario. **No sacar conclusiones de esa columna** sin
+  corregir antes el `CMD`. Añadir los dos flags lo resuelve.
+- **Campo o método sin consumidor:** todo campo/función nuevo debe tener un consumidor real en la
+  misma fase, o una marca explícita de "reservado para fase X". Ocurrió dos veces y ambas dejaron
+  seguridad decorativa: `debe_cambiar_contrasena` se escribía pero no bloqueaba nada (lo cerró A4), y
+  `registrar_intento_fallido` existía pero nadie la llamaba, así que `intentos_max` no se aplicaba
+  (lo cerró A3.3). En auditoría habría sido la tercera y la más peligrosa: un rastro sin verificar
+  contesta preguntas que nadie comprueba.
+- **Append-only:** `auditoria_evento` es append-only por **convención**, no por restricción: hoy
+  nada impide `UPDATE`/`DELETE` sobre las filas, así que cualquier acceso a la BD puede reescribir la
+  evidencia. La restricción y la política de retención se deciden juntas cuando haya volumen.
+- **Baseline de `auditoria_evento`:** **no se espera 0.** Desde A3.4 cualquier suite que haga login
+  escribe un `login_ok`, así que la tabla crece con cada corrida de los gates. Eso es correcto: es un
+  log, no un estado. **No borrar filas para que el número quede lindo** — eso violaría el append-only
+  y borraría justamente la evidencia de que los hooks funcionan. Lo que sí se limpia es lo que genera
+  `test_auditoria.py`, y solo lo suyo.
 
 ## 4. Entorno y trampas
 

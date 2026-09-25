@@ -51,8 +51,12 @@ aislada y usa una BD desechable. Las demás suites tienen limpieza propia al fin
 - `backend/scripts/test_fresh_db.py` — crea y destruye únicamente `celr_v6_fresh_test`; requiere PostgreSQL vivo en `:5433` y valida la cadena Alembic sin tocar `celr_v6_db`.
 - `backend/scripts/test_a1_guard_downgrade.py` — crea y destruye únicamente `celr_v6_a1_guard_test`; verifica que el `downgrade()` de `d4e5f6a7b8c9` aborte si hay usuarios con `correo=NULL` (protección contra pérdida de datos) sin tocar `celr_v6_db`.
 - `backend/scripts/test_password_reset.py` — reset de contraseña por token de enlace (A3.1), TR-1..TR-13; usa la BD real con limpieza propia.
+- `backend/scripts/test_primer_login.py` — enforcement del primer login (A4), TA-FL1..TA-FL9; usa la BD real con limpieza propia.
+- `backend/scripts/test_reset_asistido.py` — reset admin con contraseña temporal (A3.2), TRA-1..TRA-16; usa la BD real con limpieza propia.
+- `backend/scripts/test_reset_codigo.py` — reset por código offline de 6 dígitos (A3.3), TRC-1..TRC-16; usa la BD real con limpieza propia.
+- `backend/scripts/test_auditoria.py` — auditoría de eventos sensibles (A3.4), TAUD-1..TAUD-12; usa la BD real y limpia solo sus propias filas.
 - `scripts/e2e_flow_test.py` — against a **running server**; set `CELR_BASE_URL` (default `http://localhost:8000`; use `http://localhost:8001` for the Docker backend).
-- La lista completa de **14 suites** y gates está centralizada en `INSTRUCCIONES_OPENCODE.md` §3; incluye `test_flypass_import.py` (TF1–TF8), `test_flypass_list.py` (TL1–TL9), `test_fresh_db.py` (TM1–TM9), `test_a1_guard_downgrade.py` (guard de `downgrade`) y `test_password_reset.py` (TR-1..TR-13).
+- La lista completa de **18 suites** y gates está centralizada en `INSTRUCCIONES_OPENCODE.md` §3.
 
 Credentials: `test@celr.com` / `admin123` (admin), `cliente@celr.com` / `cliente123` (cliente). Seed admin starts with `debe_cambiar_contrasena=True` (first login is forced through `/cambiar-contrasena`).
 
