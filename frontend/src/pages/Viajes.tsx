@@ -94,6 +94,32 @@ const tipoViajeItems = [
   { value: 'vacio', label: 'Vacío' },
 ]
 
+const CAMPOS_REQUERIDOS_POR_ESTADO: Record<string, string[]> = {
+  en_curso: ['valor_flete_manifiesto', 'km_inicial'],
+  programado: ['valor_flete_manifiesto', 'km_inicial'],
+  completado: ['valor_flete_manifiesto', 'km_inicial', 'km_final', 'fecha_llegada'],
+  cancelado: [],
+}
+
+const ETIQUETAS_CAMPOS: Record<string, string> = {
+  valor_flete_manifiesto: 'Valor flete manifiesto',
+  km_inicial: 'KMS inicial tacómetro',
+  km_final: 'KMS final tacómetro',
+  fecha_llegada: 'Fecha llegada',
+}
+
+const esRequeridoPorEstado = (estado: string, campo: string): boolean =>
+  (CAMPOS_REQUERIDOS_POR_ESTADO[estado] ?? []).includes(campo)
+
+const validarRequeridosPorEstado = (form: Record<string, any>, estado: string): string[] => {
+  const requeridos = CAMPOS_REQUERIDOS_POR_ESTADO[estado] ?? []
+  return requeridos.filter((campo) => {
+    const valor = form[campo]
+    if (valor === '' || valor === null || valor === undefined) return true
+    return typeof valor === 'number' && Number.isNaN(valor)
+  })
+}
+
 const initialForm = {
   vehiculo_id: '',
   conductor_id: '',
@@ -250,6 +276,12 @@ const Viajes: React.FC = () => {
       setFormError('Selecciona municipio de origen y destino')
       return
     }
+    const faltantes = validarRequeridosPorEstado(form, form.estado)
+    if (faltantes.length > 0) {
+      const nombres = faltantes.map((campo) => ETIQUETAS_CAMPOS[campo] ?? campo).join(', ')
+      setFormError(`Complete los campos obligatorios para estado "${form.estado}": ${nombres}`)
+      return
+    }
     setSubmitting(true)
     const payload: Record<string, any> = {
       vehiculo_id: Number(form.vehiculo_id),
@@ -329,6 +361,13 @@ const Viajes: React.FC = () => {
     if (!editando) return
     if (!editForm.vehiculo_id || !editForm.conductor_id) {
       setEditError('Selecciona un vehículo y un conductor')
+      return
+    }
+
+    const faltantes = validarRequeridosPorEstado(editForm, editForm.estado)
+    if (faltantes.length > 0) {
+      const nombres = faltantes.map((campo) => ETIQUETAS_CAMPOS[campo] ?? campo).join(', ')
+      setEditError(`Complete los campos obligatorios para estado "${editForm.estado}": ${nombres}`)
       return
     }
 
@@ -638,7 +677,10 @@ const FilaCalculada: React.FC<{ label: string; valor: number; tono?: string }> =
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Valor Flete Manifiesto</label>
+            <label className="block text-sm font-medium text-slate-300 mb-1">
+              Valor Flete Manifiesto
+              {esRequeridoPorEstado(form.estado, 'valor_flete_manifiesto') && <span className="text-red-400"> *</span>}
+            </label>
             <input
               type="number"
               name="valor_flete_manifiesto"
@@ -825,7 +867,10 @@ const FilaCalculada: React.FC<{ label: string; valor: number; tono?: string }> =
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">KMS inicial tacómetro</label>
+            <label className="block text-sm font-medium text-slate-300 mb-1">
+              KMS inicial tacómetro
+              {esRequeridoPorEstado(form.estado, 'km_inicial') && <span className="text-red-400"> *</span>}
+            </label>
             <input
               type="number"
               name="km_inicial"
@@ -839,7 +884,10 @@ const FilaCalculada: React.FC<{ label: string; valor: number; tono?: string }> =
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">KMS final tacómetro</label>
+            <label className="block text-sm font-medium text-slate-300 mb-1">
+              KMS final tacómetro
+              {esRequeridoPorEstado(form.estado, 'km_final') && <span className="text-red-400"> *</span>}
+            </label>
             <input
               type="number"
               name="km_final"
@@ -853,7 +901,10 @@ const FilaCalculada: React.FC<{ label: string; valor: number; tono?: string }> =
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Fecha llegada</label>
+            <label className="block text-sm font-medium text-slate-300 mb-1">
+              Fecha llegada
+              {esRequeridoPorEstado(form.estado, 'fecha_llegada') && <span className="text-red-400"> *</span>}
+            </label>
             <input
               type="date"
               name="fecha_llegada"
@@ -1091,7 +1142,10 @@ const FilaCalculada: React.FC<{ label: string; valor: number; tono?: string }> =
             <form onSubmit={guardarEdicion} className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {camposViaje.map((campo) => (
                 <div key={campo}>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">{traduccionCampo[campo]}</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">
+                    {traduccionCampo[campo]}
+                    {esRequeridoPorEstado(editForm.estado, campo) && <span className="text-red-400"> *</span>}
+                  </label>
                   {renderCampoEdicion(campo)}
                 </div>
               ))}
