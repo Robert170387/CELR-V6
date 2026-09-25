@@ -53,8 +53,8 @@ def registrar_gasto(
     )
     if existing:
         raise HTTPException(status_code=400, detail="Gasto duplicado detectado")
-    if not data.get("reportado_por"):
-        data["reportado_por"] = current_user.id
+    # El actor se deriva exclusivamente del token; el DTO no lo expone.
+    data["reportado_por"] = current_user.id
     estado = _estado_validacion_combustible(db, data)
     if estado:
         data["estado_validacion"] = estado

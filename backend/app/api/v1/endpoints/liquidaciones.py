@@ -236,13 +236,8 @@ def cerrar_liquidacion(
     if not detalle_bloqueos["cercable"]:
         raise HTTPException(status_code=409, detail=detalle_bloqueos)
 
-    # Quien crea no puede auto-aprobarse al cierre.
-    if data.aprobado_por is not None and data.aprobado_por == current_user.id:
-        raise HTTPException(
-            status_code=403,
-            detail="Quien crea la liquidación no puede ser quien la aprueba",
-        )
-
+    # La aprobación se registra exclusivamente en /liquidaciones/{id}/aprobar,
+    # cuyo actor también se deriva del token. El cierre solo crea el borrador.
     # COMPENSADO_RC (FASE A2): consolidados del periodo calculados por el servidor
     # (conteo de viajes, comisiones totales y retiros de tarjeta cruzados).
     consolidado = consolidar_compensado(db, data.conductor_id, data.periodo_inicio, data.periodo_fin)
@@ -279,7 +274,7 @@ def cerrar_liquidacion(
         num_comprobante_pago=data.num_comprobante_pago,
         observaciones=data.observaciones,
         creado_por=current_user.id,
-        aprobado_por=data.aprobado_por,
+        aprobado_por=None,
     )
     db.add(liquidacion)
     for v in viajes_a_liquidar:

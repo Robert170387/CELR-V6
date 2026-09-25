@@ -19,7 +19,6 @@ class IngresoCreate(BaseModel):
     num_referencia: Optional[str] = Field(None, max_length=50)
     estado_pago: str = Field("por_cobrar", max_length=20)
     observaciones: Optional[str] = None
-    creado_por: Optional[int] = None
 
     @validator("tipo_ingreso")
     def validate_tipo_ingreso(cls, v):
@@ -61,7 +60,6 @@ class IngresoUpdate(BaseModel):
     num_referencia: Optional[str] = Field(None, max_length=50)
     estado_pago: Optional[str] = Field(None, max_length=20)
     observaciones: Optional[str] = None
-    creado_por: Optional[int] = None
 
     @validator("tipo_ingreso")
     def validate_tipo_ingreso(cls, v):

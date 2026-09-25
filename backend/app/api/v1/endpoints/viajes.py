@@ -24,8 +24,8 @@ def crear_viaje(
     current_user: Usuario = Depends(get_current_user),
 ):
     data = viaje.model_dump()
-    if not data.get("creado_por"):
-        data["creado_por"] = current_user.id
+    # El actor se deriva exclusivamente del token; el DTO no lo expone.
+    data["creado_por"] = current_user.id
     autocompletar_municipio_texto(db, data, "origen", "origen_municipio_id")
     autocompletar_municipio_texto(db, data, "destino", "destino_municipio_id")
     # Regla 2: un numero de manifiesto no se duplica por empresa/cliente

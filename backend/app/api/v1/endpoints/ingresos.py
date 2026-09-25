@@ -21,8 +21,8 @@ def registrar_ingreso(
     current_user: Usuario = Depends(get_current_user),
 ):
     data = ingreso.model_dump()
-    if not data.get("creado_por"):
-        data["creado_por"] = current_user.id
+    # El actor se deriva exclusivamente del token; el DTO no lo expone.
+    data["creado_por"] = current_user.id
     db_ingreso = Ingreso(**data)
     db.add(db_ingreso)
     try:

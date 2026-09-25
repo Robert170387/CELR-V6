@@ -46,8 +46,6 @@ class LiquidacionCreate(BaseModel):
     forma_pago_liquidacion: Optional[str] = Field(None, max_length=30)
     num_comprobante_pago: Optional[str] = Field(None, max_length=50)
     observaciones: Optional[str] = None
-    creado_por: Optional[int] = None
-    aprobado_por: Optional[int] = None
 
 
 class CierreMensualCreate(BaseModel):

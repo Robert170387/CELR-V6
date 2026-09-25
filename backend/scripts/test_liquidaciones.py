@@ -632,12 +632,19 @@ def test_aprobar_liquidacion(db: Session, viaje: ViajeODT, cond_id: int, veh_id:
             "gastos_a_cargo_conductor": 0,
             "viajes_ids": [viaje.id],
             "estado": "borrador",
+            "creado_por": 999999,
+            "aprobado_por": admin2.id,
         },
         headers=headers,
     )
     assert r.status_code == 200, f"cerrar fallo: {r.status_code} {r.text}"
     liq_id = r.json()["liquidacion_id"]
-    print(f"  liquidación creada id={liq_id}")
+    db.expire_all()
+    liq_db = db.query(LiquidacionConductor).filter(LiquidacionConductor.id == liq_id).first()
+    assert liq_db is not None
+    assert liq_db.creado_por == admin.id, "el creador debe derivarse del token"
+    assert liq_db.aprobado_por is None, "el payload no puede preaprobar una liquidación"
+    print(f"  liquidación creada id={liq_id}; actores del payload ignorados")
 
     r = client.post(f"/api/v1/liquidaciones/{liq_id}/aprobar", headers=headers)
     assert r.status_code == 403, f"auto-aprobación deberia ser 403: {r.status_code} {r.text}"

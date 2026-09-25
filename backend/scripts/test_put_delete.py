@@ -57,6 +57,9 @@ def main():
     headers = login()
     creados = {"vehi": [], "cond": [], "prov": [], "viaje": [], "gasto": [], "ingreso": []}
     db = SessionLocal()
+    admin = db.query(UsuarioModel).filter(UsuarioModel.correo == "test@celr.com").first()
+    assert admin is not None, "No se encontró el usuario administrador de prueba"
+    admin_id = admin.id
 
     try:
         # --- Preparacion ---
@@ -67,14 +70,16 @@ def main():
         creados["cond"].append(cond["id"])
         prov = post("/api/v1/proveedores", {"razon_social": f"Proveedor {suf}", "nit": f"9.{suf}.5", "tipo": "combustible", "ciudad": "Bogota"}, headers)
         creados["prov"].append(prov["id"])
-        viaje = post("/api/v1/viajes", {"vehiculo_id": veh["id"], "conductor_id": cond["id"], "origen": "Bogota", "destino": "Medellin", "fecha_salida": "2026-09-16", "estado": "en_curso"}, headers)
+        viaje = post("/api/v1/viajes", {"vehiculo_id": veh["id"], "conductor_id": cond["id"], "origen": "Bogota", "destino": "Medellin", "fecha_salida": "2026-09-16", "estado": "en_curso", "creado_por": 999999}, headers)
         creados["viaje"].append(viaje["id"])
         assert viaje["numero_odt"], "numero_odt debe ser autogenerado por el servidor"
-        creados["viaje"].append(viaje["id"])
-        gasto = post("/api/v1/gastos", {"viaje_id": viaje["id"], "vehiculo_id": veh["id"], "categoria": "combustible", "fecha_gasto": "2026-09-16", "valor_total": 200000}, headers)
+        assert viaje["creado_por"] == admin_id, "el actor de la ODT debe venir del token"
+        gasto = post("/api/v1/gastos", {"viaje_id": viaje["id"], "vehiculo_id": veh["id"], "categoria": "combustible", "fecha_gasto": "2026-09-16", "valor_total": 200000, "reportado_por": 999998}, headers)
         creados["gasto"].append(gasto["id"])
-        ingreso = post("/api/v1/ingresos", {"viaje_id": viaje["id"], "vehiculo_id": veh["id"], "tipo_ingreso": "anticipo_manifiesto", "fecha_ingreso": "2026-09-16", "valor": 100000, "estado_pago": "recibido"}, headers)
+        assert gasto["reportado_por"] == admin_id, "el actor del gasto debe venir del token"
+        ingreso = post("/api/v1/ingresos", {"viaje_id": viaje["id"], "vehiculo_id": veh["id"], "tipo_ingreso": "anticipo_manifiesto", "fecha_ingreso": "2026-09-16", "valor": 100000, "estado_pago": "recibido", "creado_por": 999997}, headers)
         creados["ingreso"].append(ingreso["id"])
+        assert ingreso["creado_por"] == admin_id, "el actor del ingreso debe venir del token"
         print(f"  vehiculo={veh['id']}, conductor={cond['id']}, proveedor={prov['id']}, viaje={viaje['id']}, gasto={gasto['id']}, ingreso={ingreso['id']}")
 
         # --- PUT ---
@@ -88,15 +93,18 @@ def main():
         print("  [OK ] UPDATE sobre maestras con campos parciales")
 
         print("\n=== Test 2: PUT viajes ===")
-        r = put(f"/api/v1/viajes/{viaje['id']}", {"destino": "Cartagena", "valor_flete_manifiesto": 1200000}, headers)
+        r = put(f"/api/v1/viajes/{viaje['id']}", {"destino": "Cartagena", "valor_flete_manifiesto": 1200000, "creado_por": 999996}, headers)
         assert r.json()["destino"] == "Cartagena"
+        assert r.json()["creado_por"] == admin_id, "un update no puede reescribir el actor"
         print("  [OK ] UPDATE viaje parcial")
 
         print("\n=== Test 3: PUT gastos e ingresos ===")
-        r = put(f"/api/v1/gastos/{gasto['id']}", {"valor_total": 250000}, headers)
+        r = put(f"/api/v1/gastos/{gasto['id']}", {"valor_total": 250000, "reportado_por": 999994}, headers)
         assert r.json()["valor_total"] == 250000 or float(r.json()["valor_total"]) == 250000.0
-        r = put(f"/api/v1/ingresos/{ingreso['id']}", {"valor": 150000}, headers)
+        assert r.json()["reportado_por"] == admin_id, "un update no puede reescribir el actor"
+        r = put(f"/api/v1/ingresos/{ingreso['id']}", {"valor": 150000, "creado_por": 999995}, headers)
         assert r.json()["valor"] == 150000 or float(r.json()["valor"]) == 150000.0
+        assert r.json()["creado_por"] == admin_id, "un update no puede reescribir el actor"
         print("  [OK ] UPDATE gasto e ingreso")
 
         print("\n=== Test 4: PUT no encontrado / FK invalido / duplicado / validacion ===")

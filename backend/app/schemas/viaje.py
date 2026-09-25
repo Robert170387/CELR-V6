@@ -34,7 +34,6 @@ class ViajeCreate(BaseModel):
     otras_deducciones: Optional[Decimal] = Field(None, ge=0)
     anticipo_manifiesto: Optional[Decimal] = Field(None, ge=0)
     porcentaje_comision: Optional[Decimal] = Field(None, ge=0, le=100)
-    creado_por: Optional[int] = None
 
     @validator("tipo_viaje")
     def validate_tipo_viaje(cls, v):
@@ -73,7 +72,6 @@ class ViajeUpdate(BaseModel):
     otras_deducciones: Optional[Decimal] = Field(None, ge=0)
     anticipo_manifiesto: Optional[Decimal] = Field(None, ge=0)
     porcentaje_comision: Optional[Decimal] = Field(None, ge=0, le=100)
-    creado_por: Optional[int] = None
 
     @validator("tipo_viaje")
     def validate_tipo_viaje(cls, v):
