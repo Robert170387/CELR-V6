@@ -9,6 +9,15 @@ semilla test@celr.com (id=1). Por eso el test lo desactiva primero mediante el
 PROPIO endpoint — es la unica forma de que un admin temporal sea realmente el
 ultimo, y de paso ejercita el endpoint con un caso real. El setup restaura
 id=1 antes de empezar, asi que una corrida fallida previa se auto-repara.
+
+NORMATIVA — los conteos globales de la app DB no son invariante. La BD de
+desarrollo tiene datos reales: cuentas creadas a mano, tokens de recuperacion
+pendientes. Un test que asume "hay exactamente N admins" o "la tabla X esta
+vacia" pasa en una BD limpia y falla con el uso diario, que es peor: el gate
+se pone rojo sin que nadie haya tocado el codigo. Por eso aca NO se afirma un
+total global: TUA-2 neutraliza los admins ajenos al test (snapshot ->
+desactivar -> afirmar -> restaurar en el finally) para llevar el helper a un
+escenario controlado de un solo admin, y restaura los reales al terminar.
 """
 import os
 import re
@@ -84,6 +93,25 @@ def run() -> None:
         # el estado consistente antes de empezar.
         semilla = db.query(UsuarioModel).filter(UsuarioModel.correo == "test@celr.com").one()
         semilla.activo = True
+        # TUA-2 neutraliza admins ajenos y los restaura en su finally. Si un
+        # proceso muere sin ejecutar ese finally (Ctrl+C), el admin real
+        # quedaria inactivo. Se repara aqui: un admin con cedula NO sintetica
+        # (las de este test empiezan con 9) no es del test, asi que se
+        # reactiva. Los admins del propio test se borran en el teardown.
+        reparados = [
+            u.id
+            for u in db.query(UsuarioModel)
+            .filter(UsuarioModel.rol == "admin", UsuarioModel.activo.is_(False))
+            .all()
+            if not (u.cedula or "").startswith("9")
+        ]
+        if reparados:
+            db.execute(
+                UsuarioModel.__table__.update()
+                .where(UsuarioModel.__table__.c.id.in_(reparados))
+                .values(activo=True)
+            )
+            print(f"  [setup] admin(s) real(es) reactivados: {reparados}")
         db.commit()
 
         admin_a = preparar("admin-a", "admin", "90000001")
@@ -181,23 +209,66 @@ def run() -> None:
         # El helper SI alcanza el caso ultimo: se comprueba a nivel de servicio,
         # construyendo el estado directamente (que es como se llegaria si
         # mañana otro rol ganara el permiso).
-        db.expire_all()
-        meta.rol = "admin"
-        db.commit()
-        admin_a.activo = False
-        db.commit()
-        assert es_ultimo_admin_activo(db, meta.id) is True, (
-            "TUA-2: es_ultimo_admin_activo deberia dar True con un unico admin activo"
-        )
+        #
+        # `es_ultimo_admin_activo` cuenta admins activos de TODA la base, asi
+        # que un admin real creado a mano (p. ej. desde la propia pantalla de
+        # gestion) hace que el helper responda False aunque el escenario del
+        # test sea el correcto. No se puede afirmar un total global. Se
+        # neutralizan los admins ajenos —los que este test no creo— para
+        # llevar la base a "un solo admin activo", que es la precondicion que
+        # TUA-2 quiere verificar. Se guardan sus ids y se restauran en el
+        # finally: los datos reales del usuario no se borran ni se pierden.
+        ajenos = [
+            u.id
+            for u in db.query(UsuarioModel)
+            .filter(UsuarioModel.rol == "admin", UsuarioModel.activo.is_(True))
+            .all()
+            if u.id not in (meta.id, admin_a.id)
+        ]
+        if ajenos:
+            db.execute(
+                UsuarioModel.__table__.update()
+                .where(UsuarioModel.__table__.c.id.in_(ajenos))
+                .values(activo=False)
+            )
+            db.commit()
+        try:
+            # Escenario controlado: meta pasa a ser admin y admin_a (el otro
+            # admin del test) queda inactivo, de modo que meta es el UNICO
+            # admin activo una vez neutralizados los ajenos.
+            db.expire_all()
+            meta.rol = "admin"
+            admin_a.activo = False
+            db.commit()
+            db.expire_all()
+            assert contar_admins_activos(db) == 1, (
+                f"TUA-2: se esperaba 1 admin activo y hay "
+                f"{contar_admins_activos(db)}; la neutralizacion no alcanzo"
+            )
+            assert es_ultimo_admin_activo(db, meta.id) is True, (
+                "TUA-2: es_ultimo_admin_activo deberia dar True con un unico admin activo"
+            )
+        finally:
+            db.expire_all()
+            meta.rol = "conductor"
+            admin_a.activo = True
+            db.commit()
+            if ajenos:
+                db.execute(
+                    UsuarioModel.__table__.update()
+                    .where(UsuarioModel.__table__.c.id.in_(ajenos))
+                    .values(activo=True)
+                )
+                db.commit()
         assert es_ultimo_admin_activo(db, operador.id) is False, (
             "TUA-2: un no-admin no es 'ultimo admin'"
         )
         assert es_ultimo_admin_activo(db, 99999999) is False, (
             "TUA-2: un id inexistente no es 'ultimo admin'"
         )
-        meta.rol = "conductor"
-        admin_a.activo = True
-        db.commit()
+        # meta.rol y admin_a.activo los restaura el finally del bloque de
+        # arriba: dejar el estado en un solo lugar evita que una excepcion a
+        # mitad deje a meta como admin o a admin_a inactivo.
         print("  [TUA-2] es_ultimo_admin_activo: True/False/no-existente correctos: PASADO")
 
         # --------- TUA-3: confirmacion incorrecta -> 422, sin cambios ------------

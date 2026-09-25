@@ -8,6 +8,14 @@ Sobre el listado: sigue la convencion del repo (skip/limit + header
 X-Total-Count, que es lo que lee conTotal() en el frontend), no un
 {data, total} en el body. Con el body, la UI mostraria 0 elementos con el
 array lleno.
+
+NORMATIVA — los conteos y los ids globales de la app DB no son invariante: la
+BD de desarrollo tiene datos reales y otras suites borran lo que crean. Un
+`ConductorModel.id == 2` hardcodeado (lo que hacia TUC-9) fallaba con
+NoResultFound sin que nadie hubiera tocado el codigo. Los asserts de esta suite
+miden delta, filtran por los usuarios propios o usan filas creadas por la
+propia suite. La lista de correos del teardown es el filtro de limpieza: si se
+agrega un usuario nuevo al test, hay que agregarlo ahi.
 """
 import logging
 import os
@@ -97,6 +105,23 @@ def run() -> None:
         supervisor = crear_directo("supervisor", "supervisor")
         cliente = crear_directo("cliente", "cliente")
         conductor = crear_directo("conductor", "conductor")
+
+        # NORMATIVA — los conteos y los ids globales de la app DB no son
+        # invariante. La BD de desarrollo tiene datos reales y otras suites
+        # borran los conductores que crean, asi que pedir `ConductorModel.id
+        # == 2` (lo que hacia TUC-9) fallaba con NoResultFound sin que nadie
+        # hubiera tocado el codigo. Acá el conductor lo crea la propia suite
+        # con cedula sintetica, y se borra en el finally. Los asserts que
+        # necesitarian un total global miden delta o filtran por los usuarios
+        # propios: TUC-18 ya filtra por el usuario_id que acaba de crear.
+        conductor_flota = ConductorModel(
+            nombre_completo="Conductor TUC",
+            cedula=_cedula(900),
+            estado="activo",
+        )
+        db.add(conductor_flota)
+        db.commit()
+        db.refresh(conductor_flota)
         # El seed tambien es admin: el listado debe reflejarlo.
         semilla = db.query(UsuarioModel).filter(UsuarioModel.correo == "test@celr.com").one()
 
@@ -231,7 +256,8 @@ def run() -> None:
         print("  [TUC-8] correo duplicado en mayusculas -> 409: PASADO")
 
         # ---------------- TUC-9: conductor_id con cedula que no coincide ----------------
-        cond = db.query(ConductorModel).filter(ConductorModel.id == 2).one()
+        # El conductor es el que creo el setup, no uno prestado por id fijo.
+        cond = conductor_flota
         r9 = client.post(
             "/api/v1/usuarios",
             headers=h_admin,
@@ -424,6 +450,16 @@ def run() -> None:
         root.removeHandler(captura)
         root.setLevel(nivel_previo)
         try:
+            # El conductor de flota lo creo esta suite (ver TUC-9). Se borra
+            # explicitamente: otras suites lo consularian como "el conductor
+            # que existe" y este no es de nadie. Primero los usuarios que lo
+            # referencian, por la FK usuarios.conductor_id.
+            if conductor_flota is not None:
+                db.query(UsuarioModel).filter(
+                    UsuarioModel.conductor_id == conductor_flota.id
+                ).update({UsuarioModel.conductor_id: None}, synchronize_session=False)
+                db.flush()
+                db.delete(conductor_flota)
             correos = [
                 _correo(e)
                 for e in (

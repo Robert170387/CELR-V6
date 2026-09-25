@@ -11,6 +11,12 @@ password_version sube y el access token queda viejo -> 401), y el test
 fallaria por un motivo que no es el que cree comprobar. Con pools separados,
 cada caso mide lo que dice medir.
 
+NORMATIVA — esta suite no afirma ningun total global de la app DB. La BD de
+desarrollo tiene datos reales (cuentas creadas a mano, tokens de recuperacion
+pendientes), y un `count() == 0` pasa en una BD limpia y falla con el uso
+diario: el gate se pone rojo sin que nadie haya tocado el codigo. Los asserts
+miden delta o filtran por los usuarios del propio test.
+
 Limpieza por ID y resolucion por correo (norma D-cleanup de A3.1).
 """
 import logging
@@ -112,6 +118,14 @@ def run() -> None:
         }
         print(f"Ejecutores y objetivos creados para los {len(ROLES)} roles")
 
+        # NORMATIVA — los conteos globales de la app DB no son invariante: un
+        # token de recuperacion pendiente (pedido desde /recuperar o generado
+        # desde la pantalla de gestion) deja filas en password_reset_token sin
+        # que este test intervenga. Los asserts de esta suite miden DELTA
+        # (snapshot antes/despues) o filtran por los usuarios propios, nunca un
+        # total global. Ver TRA-13.
+        tokens_antes = db.query(PasswordResetToken).count()
+
         h = {rol: _login(client, u.correo, PASSWORD_INICIAL) for rol, u in ejecutores.items()}
 
         def reset(headers, objetivo_id):
@@ -209,11 +223,17 @@ def run() -> None:
         print("  [TRA-12] la temporal no aparece en logs ni en la URL: PASADO")
 
         # ---------------- TRA-13: no pasa por password_reset_token ----------------
-        assert db.query(PasswordResetToken).count() == 0, (
-            f"TRA-13: password_reset_token deberia seguir vacia, hay "
-            f"{db.query(PasswordResetToken).count()} filas (A3.2 no usa esa tabla)"
+        # Delta, NO conteo global contra 0. La tabla no es una invariante de la
+        # app DB: un token de recuperacion pedido desde /recuperar, o generado
+        # a mano desde la pantalla de gestion, la deja con filas sin que este
+        # test haya hecho nada. Lo que TRA-13 quiere verificar es que el reset
+        # ADMINISTRATIVO no cree filas, y eso se mide sobre el delta: si el
+        # numero de filas no cambio, este test no agrego ninguna.
+        assert db.query(PasswordResetToken).count() == tokens_antes, (
+            f"TRA-13: el reset asistido no debe crear filas en password_reset_token; "
+            f"habia {tokens_antes} y ahora hay {db.query(PasswordResetToken).count()}"
         )
-        print("  [TRA-13] password_reset_token sigue vacia: PASADO")
+        print("  [TRA-13] password_reset_token sin delta (A3.2 no usa esa tabla): PASADO")
 
         # ---------------- TRA-16: la temporal cumple la politica de A1 ----------------
         sup = estado(objetivos["supervisor"].id)
