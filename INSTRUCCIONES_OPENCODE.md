@@ -19,7 +19,7 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 
 ## 3. Gates antes de commitear
 
-1. **Backend:** las **12** suites `backend/scripts/test_*.py` en verde (desde `backend/`, con
+1. **Backend:** las **13** suites `backend/scripts/test_*.py` en verde (desde `backend/`, con
    `PYTHONPATH=.` y `DATABASE_URL` → `:5433`), con el venv:
    `venv\Scripts\python.exe scripts\test_<suite>.py` — los scripts imprimen checks `✓`/`✗`;
    bajo pipe en Windows ejecutar con `$env:PYTHONIOENCODING="utf-8"` (cp1252 rompe esos
@@ -27,12 +27,28 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
    `test_flypass_import.py` cubre TF1–TF8 y `test_flypass_list.py` cubre TL1–TL9.
    `test_fresh_db.py` es la suite 12: crea y destruye `celr_v6_fresh_test` (nunca toca
    `celr_v6_db`), requiere PostgreSQL vivo en `:5433` y valida TM1–TM9.
+   `test_a1_guard_downgrade.py` es la suite 13: verifica que el `downgrade()` de
+   `d4e5f6a7b8c9` **aborta** si existen usuarios con `correo=NULL` (protege contra pérdida de
+   datos al revertir) y que completa correctamente cuando no los hay. Corre en BD desechable
+   propia (`celr_v6_a1_guard_test`), nunca toca `celr_v6_db`; requiere PostgreSQL vivo en `:5433`.
 2. **Humo:** `venv\Scripts\python.exe scripts\smoke.py` → `[SMOKE OK]`.
 3. **E2E** (servidor vivo, p. ej. Docker `:8001`):
    `$env:CELR_BASE_URL="http://localhost:8001"; $env:PYTHONUTF8="1";
    venv\Scripts\python.exe ..\scripts\e2e_flow_test.py` — si la salida se captura por pipe,
    añadir `$env:PYTHONIOENCODING="utf-8"` (el check `✓` revienta con cp1252 bajo pipe).
 4. **Frontend:** `npm run build` en `frontend/` (incluye `tsc -b`, es el gate) → sin warnings.
+
+### Deuda conocida de los gates
+
+- **`test_rbac.py` — cobertura reducida en BD limpia:** corre en el gate, pero omite los casos que
+  dependen de datos (`viajes_odt`); con la BD sin viajes la cobertura efectiva baja. No es un
+  fallo: el gate sigue siendo válido, solo menos exhaustivo. Anotado 2026-09-25.
+- **`verify_seed.py` — no corre en el gate:** no es `test_*.py` y usa `correo` como clave, así que
+  romperá con 2+ usuarios con `correo=NULL` (lo que A1 habilitó y lo que será habitual post-A5).
+  Deuda: migrar la clave a `id`.
+- **`test_fresh_db.HEAD_REVISION` — constante hardcodeada:** al agregar una revisión Alembic hay que
+  actualizarla; si no, la precondición aborta la suite antes de empezar (síntoma:
+  `Precondición fallida: alembic_version=...`). No es un fallo del gate, pero oculta el resto.
 
 ## 4. Entorno y trampas
 
