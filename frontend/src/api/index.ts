@@ -25,7 +25,10 @@ const leerTotal = (resp: any): number => {
 const conTotal = <T,>(resp: any): RespuestaLista<T> => ({ data: resp.data as T[], total: leerTotal(resp) })
 
 export const authAPI = {
-  login: (correo: string, contrasena: string) => apiClient.post('/auth/login', { correo, contrasena }),
+  // A2 (D1): `identificador` acepta cedula o correo. El backend mantiene
+  // `correo` como alias legacy, pero el frontend envia siempre el campo nuevo.
+  login: (identificador: string, contrasena: string) =>
+    apiClient.post('/auth/login', { identificador, contrasena }),
   getMe: () => apiClient.get('/auth/me'),
   cambioContrasena: (contrasenaActual: string, nuevaContrasena: string) =>
     apiClient.post('/auth/cambio-contrasena', {

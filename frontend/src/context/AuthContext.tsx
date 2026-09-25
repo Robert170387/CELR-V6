@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react'
-import axios from 'axios'
 import apiClient, {
   getAccessToken,
   getRefreshToken,
@@ -24,7 +23,7 @@ interface AuthContextType {
   user: User | null
   token: string | null
   isAuthenticated: boolean
-  login: (correo: string, contrasena: string) => Promise<void>
+  login: (identificador: string, contrasena: string) => Promise<void>
   logout: () => void
   cambiarContrasena: (contrasenaActual: string, nuevaContrasena: string) => Promise<void>
   loading: boolean
@@ -67,10 +66,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     restoreSession()
   }, [token, limpiarSesion])
 
-  const login = useCallback(async (correo: string, contrasena: string) => {
+  const login = useCallback(async (identificador: string, contrasena: string) => {
     setLoading(true)
     try {
-      const response = await axios.post('/api/v1/auth/login', { correo, contrasena })
+      // A2: antes hacia axios.post('/api/v1/auth/login') con ruta absoluta
+      // hardcodeada, que ignoraba VITE_API_URL y en Render (sitio estatico)
+      // apuntaba al origen equivocado. apiClient si lo respeta.
+      const response = await authAPI.login(identificador, contrasena)
       const { access_token, refresh_token } = response.data
       localStorage.setItem(TOKEN_KEY, access_token)
       if (refresh_token) {

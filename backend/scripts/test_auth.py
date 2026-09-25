@@ -424,6 +424,144 @@ def test_politica_contrasenas():
     print("  login con nueva / vieja contrasena -> 200 / 401: PASADO")
 
 
+def test_login_por_identificador():
+    """A2 — TA-ID-1..TA-ID-10: login por cedula o correo (D1 coexistencia)."""
+    print("\n=== Test 8: login por identificador (A2) ===")
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.db.session import SessionLocal as SL
+    from app.core.rate_limiter import _fallidos
+
+    CEDULA = "77889900"
+    CORREO = "identidad@celr.com"
+
+    def _limpiar_buckets(*claves):
+        for c in claves:
+            _fallidos.pop(c, None)
+
+    # --- Usuario temporal con cedula y correo, los dos como puerta de entrada ---
+    db = SL()
+    try:
+        u = db.query(UsuarioModel).filter(UsuarioModel.correo == CORREO).first()
+        if not u:
+            u = UsuarioModel(
+                correo=CORREO,
+                contrasena_hash=hash_password("Vieja123"),
+                rol="admin",
+                activo=True,
+            )
+            db.add(u)
+        else:
+            u.contrasena_hash = hash_password("Vieja123")
+            u.activo = True
+        u.cedula = CEDULA
+        db.commit()
+        db.refresh(u)
+        uid = u.id
+        _limpiar_buckets(f"usuario:{uid}", CORREO, CEDULA, "nadie@celr.com", "noexiste123")
+    finally:
+        db.close()
+
+    client = TestClient(app)
+    _fallidos.clear()  # punto limpio: el rate limit es global en memoria
+
+    def login(payload):
+        return client.post("/api/v1/auth/login", json=payload)
+
+    # TA-ID-1: login por cedula -> 200 + par de tokens
+    r = login({"identificador": CEDULA, "contrasena": "Vieja123"})
+    assert r.status_code == 200, f"[TA-ID-1] cedula deberia dar 200: {r.status_code} {r.text}"
+    body = r.json()
+    assert body.get("access_token") and body.get("refresh_token"), "Faltan tokens"
+    print(f"  [TA-ID-1] login por cedula {CEDULA} -> 200 + tokens: PASADO")
+
+    # TA-ID-2: login por correo -> 200 + par de tokens
+    r = login({"identificador": CORREO, "contrasena": "Vieja123"})
+    assert r.status_code == 200, f"[TA-ID-2] correo deberia dar 200: {r.status_code} {r.text}"
+    print(f"  [TA-ID-2] login por correo {CORREO} -> 200 + tokens: PASADO")
+
+    # TA-ID-3: normalizacion (espacios alrededor) en ambos campos
+    r = login({"identificador": f"  {CEDULA}  ", "contrasena": "Vieja123"})
+    assert r.status_code == 200, f"[TA-ID-3] cedula con espacios deberia dar 200: {r.status_code}"
+    r = login({"identificador": f" {CORREO} ", "contrasena": "Vieja123"})
+    assert r.status_code == 200, f"[TA-ID-3] correo con espacios deberia dar 200: {r.status_code}"
+    print("  [TA-ID-3] cedula y correo con espacios -> normalizados y 200: PASADO")
+
+    # TA-ID-4: correo en mayusculas -> 200 (case-insensitive)
+    r = login({"identificador": CORREO.upper(), "contrasena": "Vieja123"})
+    assert r.status_code == 200, f"[TA-ID-4] correo en mayusculas deberia dar 200: {r.status_code} {r.text}"
+    print(f"  [TA-ID-4] login con {CORREO.upper()} -> 200 (case-insensitive): PASADO")
+
+    # TA-ID-7: payload legacy {correo, contrasena} -> 200 (retrocompatibilidad D1)
+    r = login({"correo": CORREO, "contrasena": "Vieja123"})
+    assert r.status_code == 200, f"[TA-ID-7] payload legacy deberia dar 200: {r.status_code} {r.text}"
+    print("  [TA-ID-7] payload legacy {correo, contrasena} -> 200: PASADO")
+
+    # Precedencia: si llegan ambos, manda `identificador`
+    r = login({"identificador": CEDULA, "correo": "nadie@celr.com", "contrasena": "Vieja123"})
+    assert r.status_code == 200, f"identificador deberia ganar sobre correo: {r.status_code} {r.text}"
+    print("  precedencia: con ambos campos, `identificador` gana -> 200: PASADO")
+
+    # TA-ID-5: identificador inexistente -> 401 generico
+    r = login({"identificador": "noexiste123", "contrasena": "Vieja123"})
+    assert r.status_code == 401, f"[TA-ID-5] inexistente deberia dar 401: {r.status_code}"
+    msg_inexistente = r.json().get("detail")
+    print(f"  [TA-ID-5] identificador inexistente -> 401: {msg_inexistente}")
+
+    # TA-ID-6: contrasena incorrecta -> 401 con el MISMO mensaje (sin enumeracion)
+    r = login({"identificador": CEDULA, "contrasena": "Incorrecta999"})
+    assert r.status_code == 401, f"[TA-ID-6] contrasena incorrecta deberia dar 401: {r.status_code}"
+    msg_incorrecta = r.json().get("detail")
+    assert msg_incorrecta == msg_inexistente, (
+        f"Los mensajes deben ser identicos: {msg_incorrecta!r} != {msg_inexistente!r}"
+    )
+    print(f"  [TA-ID-6] contrasena incorrecta -> 401, mismo mensaje: PASADO")
+
+    # TA-ID-8: sin identificador ni correo -> 422
+    r = login({"contrasena": "Vieja123"})
+    assert r.status_code == 422, f"[TA-ID-8] payload sin identificador deberia dar 422: {r.status_code} {r.text}"
+    print("  [TA-ID-8] payload sin identificador ni correo -> 422: PASADO")
+
+    # TA-ID-10: la cubeta es por CUENTA, no por puerta de entrada.
+    # 3 fallos por correo + 3 por cedula del mismo usuario -> el 6to overall
+    # debe dar 429. Si el limite fuera por identificador, aqui saldria 401.
+    _fallidos.clear()
+    for i in range(3):
+        r = login({"identificador": CORREO, "contrasena": "Incorrecta999"})
+        assert r.status_code == 401, f"fallo {i+1} por correo deberia dar 401: {r.status_code}"
+    print("  3 intentos fallidos por correo -> 401: PASADO")
+    for i in range(2):
+        r = login({"identificador": CEDULA, "contrasena": "Incorrecta999"})
+        assert r.status_code == 401, f"fallo {i+3} por cedula deberia dar 401: {r.status_code}"
+    print("  +2 intentos fallidos por cedula (mismo usuario) -> 401: PASADO")
+    # Sexto intento overall, ahora por la OTRA puerta: debe estar bloqueado.
+    r = login({"identificador": CEDULA, "contrasena": "Incorrecta999"})
+    assert r.status_code == 429, (
+        f"[TA-ID-10] el 6to intento total deberia dar 429 (cubeta por cuenta): {r.status_code} {r.text}"
+    )
+    print("  [TA-ID-10] 6to intento alternando cedula/correo -> 429: PASADO")
+
+    # Y la cedula correcta tambien queda bloqueada: el bloqueo es de la cuenta.
+    r = login({"identificador": CEDULA, "contrasena": "Vieja123"})
+    assert r.status_code == 429, f"[TA-ID-10] la cuenta debe quedar bloqueada: {r.status_code}"
+    print("  [TA-ID-10] la cuenta sigue bloqueada aunque la cedula sea correcta: PASADO")
+
+    # TA-ID-9: tras limpiar, un identificador inexistente tambien se limita (5+1)
+    _fallidos.clear()
+    for i in range(5):
+        r = login({"identificador": "fantasma@celr.com", "contrasena": "Vieja123"})
+        assert r.status_code == 401, f"intento {i+1} deberia dar 401: {r.status_code}"
+    r = login({"identificador": "fantasma@celr.com", "contrasena": "Vieja123"})
+    assert r.status_code == 429, f"[TA-ID-9] el 6to intento deberia dar 429: {r.status_code} {r.text}"
+    print("  [TA-ID-9] rate limit por identificador inexistente (5+1) -> 429: PASADO")
+
+    # Un login correcto limpia la cubeta: no queda arrastrado el historial.
+    _fallidos.clear()
+    r = login({"identificador": CORREO, "contrasena": "Vieja123"})
+    assert r.status_code == 200, f"login correcto posterior fallo: {r.status_code}"
+    _fallidos.clear()
+
+
 def main():
     print("Iniciando prueba de autenticacion JWT CELR v6...")
     db = SessionLocal()
@@ -438,6 +576,7 @@ def main():
         test_refresh_flow()
         test_cambio_contrasena_y_rate_limit()
         test_politica_contrasenas()
+        test_login_por_identificador()
         print("\n[TODOS LOS TESTS DE AUTENTICACION PASARON]")
     except Exception as e:
         print(f"\n[ERROR EN TESTS]: {e}")
@@ -448,7 +587,8 @@ def main():
         # Limpieza 2.B: DELETE real solo de lo creado por esta corrida.
         # Orden inverso de FK: refresh_tokens antes que usuarios (FK sin CASCADE).
         # Nunca se borra test@celr.com (usuario semilla del stack).
-        # politica@celr.com es temporal de A1 (cedula de prueba 99887766).
+        # politica@celr.com e identidad@celr.com son temporales de A1/A2
+        # (cedulas de prueba 99887766 y 77889900).
         try:
             limpiar_tokens_nuevos(db, "ratelimit@celr.com", tokens_antes_ratelimit)
             rl = db.query(UsuarioModel).filter(UsuarioModel.correo == "ratelimit@celr.com").first()
@@ -466,6 +606,14 @@ def main():
                     synchronize_session=False
                 )
                 db.delete(pol)
+            ident = db.query(UsuarioModel).filter(
+                UsuarioModel.correo == "identidad@celr.com"
+            ).first()
+            if ident:
+                db.query(RefreshToken).filter(RefreshToken.usuario_id == ident.id).delete(
+                    synchronize_session=False
+                )
+                db.delete(ident)
             db.commit()
         except Exception:
             db.rollback()

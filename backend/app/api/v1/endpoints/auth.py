@@ -18,6 +18,7 @@ from app.core.security import (
 )
 from app.core.config import settings
 from app.core.rate_limiter import excede_limite, registrar_fallo, limpiar_fallos
+from app.services.auth import resolver_usuario_por_identificador
 from app.schemas.usuario import UsuarioLogin, UsuarioResponse
 from app.schemas.token import Token, RefreshRequest, LogoutRequest, CambioContrasenaRequest
 
@@ -26,17 +27,34 @@ router = APIRouter()
 
 @router.post("/auth/login", response_model=Token)
 def login(login_data: UsuarioLogin, db: Session = Depends(get_db)):
-    clave = (login_data.correo or "").strip().lower()
-    if excede_limite(clave):
+    """A2 (D1): login por `identificador` (cedula o correo).
+
+    `correo` se acepta como alias legacy. Si llegan ambos, `identificador` manda.
+    """
+    identificador = login_data.identificador or login_data.correo or ""
+    clave = identificador.strip().lower()
+
+    db_usuario = resolver_usuario_por_identificador(db, identificador)
+    # A2: canonizar el rate limit por cuenta, no por puerta de entrada. Sin esto,
+    # entrar por cedula o por correo abriria dos cubetas independientes para la
+    # MISMA cuenta (10 intentos en vez de 5). Se resuelve primero y se consulta
+    # UNA sola cubeta: la del usuario si existe, o la del identificador si no.
+    # Asi el limite es 5 por cuenta y no se abre un oraculo de enumeracion (las
+    # dos ramas responden 429 al sexto intento, indistinguibles para el atacante).
+    clave_usuario = f"usuario:{db_usuario.id}" if db_usuario is not None else None
+    clave_efectiva = clave_usuario or clave
+
+    if excede_limite(clave_efectiva):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Demasiados intentos de inicio de sesión. Inténtalo nuevamente en 15 minutos.",
         )
-    db_usuario = db.execute(
-        select(UsuarioModel).where(UsuarioModel.correo == login_data.correo)
-    ).scalar_one_or_none()
-    if not db_usuario or not verify_password(login_data.contrasena, db_usuario.contrasena_hash):
+    if db_usuario is None or not verify_password(login_data.contrasena, db_usuario.contrasena_hash):
+        # Marca las dos cubetas: la del identificador (por si dejara de resolver,
+        # p. ej. tras un reset de contrasena en A3) y la de la cuenta.
         registrar_fallo(clave)
+        if clave_usuario:
+            registrar_fallo(clave_usuario)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Credenciales incorrectas",
@@ -44,11 +62,14 @@ def login(login_data: UsuarioLogin, db: Session = Depends(get_db)):
         )
     if not db_usuario.activo:
         registrar_fallo(clave)
+        registrar_fallo(clave_usuario)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Usuario inactivo",
         )
+    # Exito: limpiar las dos cubetas para no arrastrar historial de otra puerta.
     limpiar_fallos(clave)
+    limpiar_fallos(clave_usuario)
     token_data = {
         "usuario_id": db_usuario.id,
         "correo": db_usuario.correo,

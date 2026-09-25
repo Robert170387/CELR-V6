@@ -1,10 +1,10 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { Truck, Mail, Lock, AlertCircle, Loader2 } from 'lucide-react'
+import { Truck, Fingerprint, Lock, AlertCircle, Loader2 } from 'lucide-react'
 
 const Login: React.FC = () => {
-  const [correo, setCorreo] = useState('')
+  const [identificador, setIdentificador] = useState('')
   const [contrasena, setContrasena] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -16,7 +16,7 @@ const Login: React.FC = () => {
     setError('')
     setLoading(true)
     try {
-      await login(correo, contrasena)
+      await login(identificador, contrasena)
       navigate('/', { replace: true })
     } catch (err) {
       setError('Credenciales incorrectas')
@@ -48,15 +48,23 @@ const Login: React.FC = () => {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Correo</label>
+              <label htmlFor="identificador" className="block text-sm font-medium text-slate-300 mb-1">
+                Cédula o correo
+              </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <Fingerprint className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                 <input
-                  type="email"
-                  value={correo}
-                  onChange={(e) => setCorreo(e.target.value)}
+                  id="identificador"
+                  name="identificador"
+                  // A2: type="text", no "email": el navegador rechazaba una
+                  // cedula antes de enviar el formulario.
+                  type="text"
+                  inputMode="text"
+                  autoComplete="username"
+                  value={identificador}
+                  onChange={(e) => setIdentificador(e.target.value)}
                   className="input-truck pl-10"
-                  placeholder="     tu@celr.com"
+                  placeholder="Ej: 1234567890 o usuario@celr.com"
                   required
                 />
               </div>
@@ -67,11 +75,14 @@ const Login: React.FC = () => {
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                 <input
+                  id="contrasena"
+                  name="contrasena"
                   type="password"
+                  autoComplete="current-password"
                   value={contrasena}
                   onChange={(e) => setContrasena(e.target.value)}
                   className="input-truck pl-10"
-                  placeholder="     ••••••••"
+                  placeholder="••••••••"
                   required
                 />
               </div>
@@ -87,9 +98,13 @@ const Login: React.FC = () => {
             </button>
           </form>
 
-          <p className="text-xs text-slate-500 mt-4 text-center">
-            Demo: test@celr.com / admin123
-          </p>
+          {/* A2: las credenciales de demo no deben exponerse en produccion
+              (Render sirve el build estatico); solo en desarrollo. */}
+          {import.meta.env.DEV && (
+            <p className="text-xs text-slate-500 mt-4 text-center">
+              Demo: test@celr.com / admin123
+            </p>
+          )}
         </div>
       </div>
     </div>
