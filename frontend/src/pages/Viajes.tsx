@@ -885,7 +885,11 @@ const FilaCalculada: React.FC<{ label: string; valor: number; tono?: string }> =
             const ricaValor = Math.round(flete * ((Number(form.reteica_porcentaje) || 0) / 100) * 100) / 100
             const otras = Number(form.otras_deducciones) || 0
             const anticipo = Number(form.anticipo_manifiesto) || 0
-            const comisionPct = Number(form.porcentaje_comision) || 10
+            // 0 explicito se respeta; default 10 solo si vacio/null/undefined
+            const rawComision = form.porcentaje_comision
+            const comisionPct = rawComision === '' || rawComision === null || rawComision === undefined
+              ? 10
+              : Number(rawComision)
             const fleteNeto = Math.round((flete - rfuenteValor - ricaValor - otras) * 100) / 100
             const comision = Math.round((fleteNeto * comisionPct) / 100 * 100) / 100
             const kmInicial = Number(form.km_inicial) || 0
