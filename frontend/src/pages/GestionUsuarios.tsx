@@ -92,6 +92,10 @@ const GestionUsuarios: React.FC = () => {
   const [objetivo, setObjetivo] = useState<UsuarioListItem | null>(null)
   const [enviando, setEnviando] = useState(false)
   const [errorModal, setErrorModal] = useState('')
+  // Acciones que no abren modal (reset, codigo, activar) no tienen donde
+  // pintar el error: sin este estado, un 403 fallaba en silencio. Vive en la
+  // pagina, no en un modal, justamente porque no hay modal abierto.
+  const [errorAccion, setErrorAccion] = useState('')
 
   const [formCrear, setFormCrear] = useState({
     cedula: '',
@@ -100,9 +104,10 @@ const GestionUsuarios: React.FC = () => {
     conductor_id: '',
   })
   const [formEditar, setFormEditar] = useState({ cedula: '', correo: '', conductor_id: '' })
-  const [temporal, setTemporal] = useState<{ valor: string; mensaje: string; copiado: boolean } | null>(
-    null
-  )
+  // Un solo `copiado` para los dos modales. Antes el de la temporal leia
+  // `temporal.copiado`, que solo se escribia en false: el check verde era
+  // inalcanzable y el boton Copiar no confirmaba nada.
+  const [temporal, setTemporal] = useState<{ valor: string; mensaje: string } | null>(null)
   const [codigo, setCodigo] = useState<ResetCodigoResponse | null>(null)
   const [copiado, setCopiado] = useState(false)
   const [formConfirma, setFormConfirma] = useState({ confirmacion: '', motivo: '', nuevo_rol: '' })
@@ -140,6 +145,7 @@ const GestionUsuarios: React.FC = () => {
 
   const abrir = (tipo: ModalTipo, u?: UsuarioListItem) => {
     setErrorModal('')
+    setErrorAccion('')
     setModal(tipo)
     setObjetivo(u || null)
     setTemporal(null)
@@ -166,13 +172,41 @@ const GestionUsuarios: React.FC = () => {
     setErrorModal('')
   }
 
+  // Si writeText falla (documento sin foco, permiso denegado, contexto no
+  // seguro) se intenta el camino viejo antes de rendirse, y si tampoco se
+  // puede se AVISA. Antes el catch era silencioso: el usuario hacia clic y no
+  // pasaba nada, sin pista de si el copia habia funcionado.
   const copiar = async (texto: string) => {
     try {
       await navigator.clipboard.writeText(texto)
       setCopiado(true)
+      setErrorAccion('')
+      return
     } catch {
-      setCopiado(false)
+      // sigue al fallback
     }
+    try {
+      const area = document.createElement('textarea')
+      area.value = texto
+      area.setAttribute('readonly', '')
+      area.style.position = 'fixed'
+      area.style.opacity = '0'
+      document.body.appendChild(area)
+      area.select()
+      const ok = document.execCommand('copy')
+      document.body.removeChild(area)
+      if (ok) {
+        setCopiado(true)
+        setErrorAccion('')
+        return
+      }
+    } catch {
+      // sigue al aviso
+    }
+    setCopiado(false)
+    setErrorAccion(
+      'No se pudo copiar al portapapeles. Seleccioná el valor y copialo con Ctrl+C.'
+    )
   }
 
   const crear = async (e: React.FormEvent) => {
@@ -189,7 +223,6 @@ const GestionUsuarios: React.FC = () => {
       setTemporal({
         valor: res.contrasena_temporal,
         mensaje: res.mensaje,
-        copiado: false,
       })
       setModal('temporal')
       cargar()
@@ -251,14 +284,17 @@ const GestionUsuarios: React.FC = () => {
 
   const resetPassword = async (u: UsuarioListItem) => {
     setEnviando(true)
+    setErrorAccion('')
     try {
       const res = await usuariosAPI.resetPassword(u.id)
       setObjetivo(u)
-      setTemporal({ valor: res.contrasena_temporal, mensaje: res.mensaje, copiado: false })
+      setTemporal({ valor: res.contrasena_temporal, mensaje: res.mensaje })
       setModal('temporal')
     } catch (err) {
-      abrir('crear', u)
-      setErrorModal(extraerMensajeError(err))
+      // Aca NO se abre el modal de crear. Antes si, y un 403 de auto-accion
+      // terminaba mostrando un formulario de alta con un error de reset
+      // adentro: sin sentido para quien lo leia.
+      setErrorAccion(extraerMensajeError(err))
     } finally {
       setEnviando(false)
     }
@@ -266,6 +302,7 @@ const GestionUsuarios: React.FC = () => {
 
   const generarCodigo = async (u: UsuarioListItem) => {
     setEnviando(true)
+    setErrorAccion('')
     try {
       const res = await usuariosAPI.resetCodigo(u.id)
       setObjetivo(u)
@@ -273,7 +310,7 @@ const GestionUsuarios: React.FC = () => {
       setCopiado(false)
       setModal('codigo')
     } catch (err) {
-      setErrorModal(extraerMensajeError(err))
+      setErrorAccion(extraerMensajeError(err))
     } finally {
       setEnviando(false)
     }
@@ -281,12 +318,12 @@ const GestionUsuarios: React.FC = () => {
 
   const activar = async (u: UsuarioListItem) => {
     setEnviando(true)
-    setErrorModal('')
+    setErrorAccion('')
     try {
       await usuariosAPI.activar(u.id)
       cargar()
     } catch (err) {
-      setErrorModal(extraerMensajeError(err))
+      setErrorAccion(extraerMensajeError(err))
     } finally {
       setEnviando(false)
     }
@@ -344,6 +381,21 @@ const GestionUsuarios: React.FC = () => {
         <div className="flex items-center gap-2 bg-danger-500/10 border border-danger-500/30 text-danger-500 px-4 py-3 rounded-lg">
           <AlertCircle size={18} />
           <span>{errorLista}</span>
+        </div>
+      )}
+
+      {errorAccion && (
+        <div className="flex items-center gap-2 bg-danger-500/10 border border-danger-500/30 text-danger-500 px-4 py-3 rounded-lg">
+          <AlertCircle size={18} className="shrink-0" />
+          <span className="flex-1">{errorAccion}</span>
+          <button
+            type="button"
+            onClick={() => setErrorAccion('')}
+            title="Cerrar aviso"
+            className="p-1 rounded text-danger-500/70 hover:text-danger-500 transition-colors"
+          >
+            <X size={16} />
+          </button>
         </div>
       )}
 
@@ -454,6 +506,9 @@ const GestionUsuarios: React.FC = () => {
                     <td className="py-3 px-3 text-slate-400">{formatFecha(u.ultimo_acceso)}</td>
                     <td className="py-3 px-3">
                       <div className="flex items-center justify-end gap-1 flex-wrap">
+                        {/* Editar SI se ofrece sobre la propia fila:
+                            actualizar_usuario solo valida la matriz de roles y
+                            un admin puede corregir su correo o su cedula. */}
                         <button
                           type="button"
                           title="Editar"
@@ -462,53 +517,66 @@ const GestionUsuarios: React.FC = () => {
                         >
                           <Pencil size={16} />
                         </button>
-                        <button
-                          type="button"
-                          title="Restablecer contraseña (temporal)"
-                          onClick={() => resetPassword(u)}
-                          disabled={enviando}
-                          className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white transition-colors disabled:opacity-40"
-                        >
-                          <KeyRound size={16} />
-                        </button>
-                        <button
-                          type="button"
-                          title="Generar código offline"
-                          onClick={() => generarCodigo(u)}
-                          disabled={enviando}
-                          className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white transition-colors disabled:opacity-40"
-                        >
-                          <ShieldCheck size={16} />
-                        </button>
-                        {u.activo ? (
-                          <button
-                            type="button"
-                            title="Desactivar"
-                            onClick={() => abrir('desactivar', u)}
-                            className="p-2 rounded-lg text-amber-300 hover:bg-slate-800 transition-colors"
-                          >
-                            <Ban size={16} />
-                          </button>
+                        {u.id === user?.id ? (
+                          // El backend rechaza la auto-accion en reset-password,
+                          // reset-codigo, desactivar y degradar
+                          // (_resolver_objetivo y _resolver_para_accion
+                          // devuelven 403). Ofrecer un boton que solo puede
+                          // terminar en 403 es peor que no ofrecerlo.
+                          <span className="text-xs text-slate-500 ml-1">
+                            Tu propia cuenta: usá el flujo de recuperación
+                          </span>
                         ) : (
-                          <button
-                            type="button"
-                            title="Reactivar"
-                            onClick={() => activar(u)}
-                            disabled={enviando}
-                            className="p-2 rounded-lg text-green-400 hover:bg-slate-800 transition-colors disabled:opacity-40"
-                          >
-                            <Power size={16} />
-                          </button>
-                        )}
-                        {esAdmin && u.rol !== 'conductor' && u.rol !== 'cliente' && (
-                          <button
-                            type="button"
-                            title="Cambiar rol"
-                            onClick={() => abrir('degradar', u)}
-                            className="p-2 rounded-lg text-purple-300 hover:bg-slate-800 transition-colors"
-                          >
-                            <UserCog size={16} />
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              title="Restablecer contraseña (temporal)"
+                              onClick={() => resetPassword(u)}
+                              disabled={enviando}
+                              className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white transition-colors disabled:opacity-40"
+                            >
+                              <KeyRound size={16} />
+                            </button>
+                            <button
+                              type="button"
+                              title="Generar código offline"
+                              onClick={() => generarCodigo(u)}
+                              disabled={enviando}
+                              className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white transition-colors disabled:opacity-40"
+                            >
+                              <ShieldCheck size={16} />
+                            </button>
+                            {u.activo ? (
+                              <button
+                                type="button"
+                                title="Desactivar"
+                                onClick={() => abrir('desactivar', u)}
+                                className="p-2 rounded-lg text-amber-300 hover:bg-slate-800 transition-colors"
+                              >
+                                <Ban size={16} />
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                title="Reactivar"
+                                onClick={() => activar(u)}
+                                disabled={enviando}
+                                className="p-2 rounded-lg text-green-400 hover:bg-slate-800 transition-colors disabled:opacity-40"
+                              >
+                                <Power size={16} />
+                              </button>
+                            )}
+                            {esAdmin && u.rol !== 'conductor' && u.rol !== 'cliente' && (
+                              <button
+                                type="button"
+                                title="Cambiar rol"
+                                onClick={() => abrir('degradar', u)}
+                                className="p-2 rounded-lg text-purple-300 hover:bg-slate-800 transition-colors"
+                              >
+                                <UserCog size={16} />
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     </td>
@@ -684,8 +752,11 @@ const GestionUsuarios: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <div className="card-truck w-full max-w-lg">
             <ModalHeader titulo="Contraseña temporal" onClose={cerrar} />
+            {/* El texto de la advertencia lo manda el backend, que es quien
+                sabe si la credencial se muestra otra vez. Antes estaba
+                hardcodeado aca y `mensaje` quedaba sin uso. */}
             <p className="text-sm text-slate-300 mb-4">
-              Comunicásela al usuario por un canal seguro. <strong>No se mostrará de nuevo.</strong>
+              {temporal.mensaje || 'Comunicásela por un canal seguro. No se mostrará de nuevo.'}
             </p>
             <div className="flex items-center gap-2">
               <code className="flex-1 px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white font-mono text-lg break-all">
@@ -697,7 +768,7 @@ const GestionUsuarios: React.FC = () => {
                 title="Copiar"
                 className="p-3 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
               >
-                {temporal.copiado ? <Check size={20} className="text-green-400" /> : <Copy size={20} />}
+                {copiado ? <Check size={20} className="text-green-400" /> : <Copy size={20} />}
               </button>
             </div>
             {objetivo && (
@@ -721,7 +792,7 @@ const GestionUsuarios: React.FC = () => {
           <div className="card-truck w-full max-w-lg">
             <ModalHeader titulo="Código de recuperación" onClose={cerrar} />
             <p className="text-sm text-slate-300 mb-4">
-              <strong>No se envía por email.</strong> Dictáselo al usuario por teléfono o presencial.
+              {codigo.mensaje || 'No se envía por email. Dictáselo al usuario por teléfono.'}
             </p>
             <div className="flex items-center gap-2">
               <code className="flex-1 px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-white font-mono text-3xl tracking-widest text-center">
