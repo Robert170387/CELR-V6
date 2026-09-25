@@ -17,6 +17,13 @@ BASE = "postgresql://postgres:admin@localhost:5433/postgres"
 DB = "celr_v6_a1_guard_test"
 ALEMBIC_INI = os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
 
+# Revisiones FIJAS, no relativas. Un `downgrade -1` solo baja UN paso: en
+# cuanto se agrega una migracion encima de A1 (A3.1 lo hizo), el guard deja de
+# alcanzarse y el test se pone verde sin comprobar nada. Con destino absoluto
+# el guard se sigue ejecutando aunque la cadena crezca.
+REV_A1 = "d4e5f6a7b8c9"      # la migracion cuyo guard se verifica
+REV_PREVIA_A1 = "c3d4e5f6a7b8"  # su revision padre
+
 
 def run() -> int:
     admin = create_engine(BASE, isolation_level="AUTOCOMMIT")
@@ -48,7 +55,11 @@ def run() -> int:
 def _ciclo_downgrade(url: str, cfg: Config, DB: str, admin) -> int:
     """Cuerpo del chequeo: corre con DATABASE_URL ya apuntando a la BD desechable."""
     command.upgrade(cfg, "head")
-    print("[OK] upgrade head aplicado")
+    with create_engine(url).connect() as conn:
+        head_esperado = conn.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar()
+    print(f"[OK] upgrade head aplicado (head={head_esperado})")
 
     eng = create_engine(url)
     # engine.begin(): sin commit explicito el INSERT se pierde al cerrar, y el
@@ -69,7 +80,9 @@ def _ciclo_downgrade(url: str, cfg: Config, DB: str, admin) -> int:
 
     fallo = None
     try:
-        command.downgrade(cfg, "-1")
+        # Destino absoluto: baja hasta la revision previa de A1, atravesando
+        # cualquier revision que se haya agregado encima.
+        command.downgrade(cfg, REV_PREVIA_A1)
     except Exception as e:  # noqa: BLE001 - aqui el fallo es lo esperado
         fallo = e
     if fallo is None:
@@ -91,14 +104,14 @@ def _ciclo_downgrade(url: str, cfg: Config, DB: str, admin) -> int:
             "WHERE table_name='usuarios' AND column_name='cedula'"
         )).scalar()
     print(f"[OK] la BD sigue en '{sigue_en_head}' y cedula existe={bool(cedula_existe)}")
-    if sigue_en_head != "d4e5f6a7b8c9" or not cedula_existe:
+    if sigue_en_head != head_esperado or not cedula_existe:
         print("[FALLA] el rollback transaccional no dejó el esquema intacto")
         return 1
 
     # Con el usuario NULL eliminado, el downgrade debe completar.
     with eng.begin() as conn:
         conn.execute(text("DELETE FROM usuarios WHERE correo IS NULL"))
-    command.downgrade(cfg, "-1")
+    command.downgrade(cfg, REV_PREVIA_A1)
     print("[OK] sin usuarios con correo NULL, el downgrade completa")
 
     with eng.connect() as conn:
@@ -110,7 +123,7 @@ def _ciclo_downgrade(url: str, cfg: Config, DB: str, admin) -> int:
             "WHERE table_name='usuarios' AND column_name='correo'"
         )).scalar()
     print(f"[OK] version={sigue_en_previo}, correo is_nullable={correo_not_null}")
-    if sigue_en_previo != "c3d4e5f6a7b8" or correo_not_null != "NO":
+    if sigue_en_previo != REV_PREVIA_A1 or correo_not_null != "NO":
         print("[FALLA] el downgrade no restauró el esquema previo")
         return 1
 

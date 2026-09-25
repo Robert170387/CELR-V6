@@ -78,6 +78,33 @@ class Usuario(Base):
     
     conductor = relationship("Conductor")
 
+class PasswordResetToken(Base):
+    """A3.1 — Token de recuperacion de contrasena. Un solo modelo para los dos
+    modos de entrega: 'enlace' (secreto largo, va por email) y 'codigo' (6
+    digitos, se lee en voz alta). `intentos`/`intentos_max` son la defensa
+    principal del modo 'codigo', cuyo espacio de busqueda es bruteforceable."""
+    __tablename__ = "password_reset_token"
+    __table_args__ = (
+        CheckConstraint("tipo IN ('enlace', 'codigo')", name="ck_password_reset_tipo_valido"),
+        CheckConstraint("intentos >= 0", name="ck_password_reset_intentos_no_negativo"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False, index=True)
+    tipo = Column(String(20), nullable=False)
+    # SHA-256 en hex (64 chars), igual que refresh_tokens: el secreto en claro
+    # nunca se persiste.
+    token_hash = Column(String(64), unique=True, nullable=False, index=True)
+    expira_en = Column(DateTime(timezone=True), nullable=False)
+    usado_en = Column(DateTime(timezone=True))
+    revocado = Column(Boolean, nullable=False, server_default="false")
+    intentos = Column(Integer, nullable=False, server_default="0")
+    intentos_max = Column(Integer, nullable=False, server_default="5")
+    creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    usuario = relationship("Usuario")
+
+
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
 

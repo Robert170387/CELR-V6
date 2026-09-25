@@ -19,10 +19,29 @@ from app.core.security import (
 from app.core.config import settings
 from app.core.rate_limiter import excede_limite, registrar_fallo, limpiar_fallos
 from app.services.auth import resolver_usuario_por_identificador
+from app.services.email import get_email_backend
+from app.services.password_reset import (
+    generar_token_reset,
+    marcar_token_consumido,
+    ttl_por_tipo,
+    usuario_por_id,
+    validar_token_reset,
+)
 from app.schemas.usuario import UsuarioLogin, UsuarioResponse
-from app.schemas.token import Token, RefreshRequest, LogoutRequest, CambioContrasenaRequest
+from app.schemas.token import (
+    Token,
+    RefreshRequest,
+    LogoutRequest,
+    CambioContrasenaRequest,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
+)
 
 router = APIRouter()
+
+# A3.1 — Mensaje unico de forgot-password. Es la MISMA respuesta exista o no la
+# cuenta: cualquier diferencia permitiria enumerar quienes tienen usuario.
+MSG_RESET_GENERICO = "Si el identificador existe, se enviara un enlace de recuperacion."
 
 
 @router.post("/auth/login", response_model=Token)
@@ -134,6 +153,103 @@ def logout(request: LogoutRequest, db: Session = Depends(get_db)):
 @router.get("/auth/me", response_model=UsuarioResponse)
 def get_current_user_endpoint(current_user: UsuarioModel = Depends(get_current_user)):
     return current_user
+
+
+@router.post("/auth/forgot-password")
+def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    """A3.1 — Pide un enlace de recuperacion. Publico por diseno.
+
+    Siempre responde 200 con el mismo mensaje, exista o no la cuenta: si el
+    usuario no existe, ese es el mismo status y ese es el mismo texto. Un 404
+    "usuario no encontrado" seria un oraculo de enumeracion de cuentas.
+
+    Rate limit con prefijo propio ('forgot:') y no la clave de login: un usuario
+    bloqueado por fallar el login cinco veces es justamente quien mas necesita
+    poder pedir un reset. Compartir cubeta lo dejaria sin salida.
+    """
+    clave = f"forgot:{data.identificador.strip().lower()}"
+    if excede_limite(clave):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demasiadas solicitudes de recuperacion. Inténtalo nuevamente en 15 minutos.",
+        )
+    # Se cuenta CADA peticion, exista o no la cuenta: el limite aqui es anti-abuso
+    # (no de credenciales), y la respuesta es 200 en ambos casos. No se limpia en
+    # el exito a proposito: si se limpiara, un atacante podria reiniciar el
+    # contador alternando un acierto con varios intentos.
+    registrar_fallo(clave)
+
+    usuario = resolver_usuario_por_identificador(db, data.identificador)
+    if usuario is not None:
+        token = generar_token_reset(db, usuario.id, tipo="enlace")
+        # Sin correo no hay a quien enviarlo. El token se genera igual (A3.2
+        # cubrira estos casos con reset asistido) pero no se finge un envio.
+        if usuario.correo:
+            enlace = f"{settings.FRONTEND_URL.rstrip('/')}/reset-password?token={token}"
+            # El TTL del mensaje se lee del mismo lugar que el del token: si se
+            # hardcodeara aqui, podria prometer 2 horas con un token de 1.
+            horas = int(ttl_por_tipo(db, "enlace").total_seconds() // 3600)
+            get_email_backend().enviar(
+                usuario.correo,
+                "CELR v6 - Recuperacion de contrasena",
+                f"Para restablecer tu contrasena usa este enlace: {enlace}\n"
+                f"El enlace expira en {horas} hora(s).",
+            )
+        db.commit()
+
+    # Sea como sea, la respuesta es identica.
+    return {"detail": MSG_RESET_GENERICO}
+
+
+@router.post("/auth/reset-password")
+def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """A3.1 — Consume el token y fija la nueva contrasena. Publico por diseno:
+    el token es la prueba de que el solicitante tiene el buzon."""
+    fila = validar_token_reset(db, data.token, tipo="enlace")
+    if fila is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido o expirado",
+        )
+
+    usuario = usuario_por_id(db, fila.usuario_id)
+    if usuario is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido o expirado",
+        )
+
+    # La politica se valida ANTES de consumir: si la contrasena no cumple, el
+    # usuario recibe 422 con el motivo y puede reintentar con el mismo token.
+    # Consumir primero dejaria el enlace muerto por un simple error de tecleo.
+    try:
+        validar_politica_contrasena(
+            data.nueva_contrasena,
+            cedula=usuario.cedula,
+            correo=usuario.correo,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    marcar_token_consumido(db, fila)
+
+    usuario.contrasena_hash = hash_password(data.nueva_contrasena)
+    # Quien recupera el acceso por buzon ya demostro quien es: no queda pendiente
+    # el cambio forzado de la primera vez.
+    usuario.debe_cambiar_contrasena = False
+    usuario.password_version = (usuario.password_version or 0) + 1
+    usuario.ultimo_acceso = datetime.now(timezone.utc)
+    # El resto de sesiones abiertas deben caer: la credencial cambio.
+    db.execute(
+        update(RefreshTokenModel)
+        .where(
+            RefreshTokenModel.usuario_id == usuario.id,
+            RefreshTokenModel.revocado == False,  # noqa: E712
+        )
+        .values(revocado=True)
+    )
+    db.commit()
+    return {"detail": "Contraseña actualizada"}
 
 
 @router.post("/auth/cambio-contrasena", response_model=Token)

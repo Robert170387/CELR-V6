@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     # Orígenes permitidos por CORS (lista separada por comas)
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
 
+    # Origen del frontend, para armar enlaces de recuperacion de contrasena.
+    # Es configuracion de despliegue (variable de entorno en Render), no de
+    # negocio: por eso vive en Settings y no en configuracion_sistema.
+    FRONTEND_URL: str = "http://localhost:5174"
+
     # OCR / lectura de comprobantes
     OCR_ENGINE: str = "tesseract"
     OCR_LANGS: str = "spa+eng"
