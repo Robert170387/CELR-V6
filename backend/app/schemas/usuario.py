@@ -40,6 +40,20 @@ class UsuarioLogin(BaseModel):
         return self
 
 
+class AdminResetPasswordResponse(BaseModel):
+    """A3.2 — Respuesta del reset asistido.
+
+    `contrasena_temporal` se devuelve UNA sola vez. El frontend debe pedirla
+    explícitamente (botón "generar") y no cachearla.
+    """
+
+    usuario_id: int
+    correo: Optional[str] = None
+    contrasena_temporal: str
+    mensaje: str
+    debe_cambiar_contrasena: bool = True
+
+
 class UsuarioResponse(BaseModel):
     id: int
     # A1: la cedula es la identidad primaria y el correo queda opcional.

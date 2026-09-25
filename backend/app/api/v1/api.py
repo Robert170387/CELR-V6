@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends
 from app.api.v1.deps import exigir_contrasena_actualizada
 from app.api.v1.endpoints import (
     auth, viajes, gastos, liquidaciones, flypass,
-    vehiculos, conductores, proveedores, ingresos, municipios,
+    vehiculos, conductores, proveedores, ingresos, municipios, usuarios,
 )
 
 api_router = APIRouter()
@@ -22,6 +22,9 @@ api_router.include_router(gastos.router, prefix="/api/v1", dependencies=PROTEGID
 api_router.include_router(liquidaciones.router, prefix="/api/v1", dependencies=PROTEGIDOS)
 api_router.include_router(flypass.router, prefix="/api/v1", dependencies=PROTEGIDOS)
 api_router.include_router(ingresos.router, prefix="/api/v1", dependencies=PROTEGIDOS)
+# A3.2: el reset asistido es endpoint de negocio, asi que entra en PROTEGIDOS.
+# Un usuario con debe_cambiar_contrasena=True no puede resetear a otro.
+api_router.include_router(usuarios.router, prefix="/api/v1", dependencies=PROTEGIDOS)
 
 # Sin proteccion, y el motivo importa:
 # - auth: el usuario bloqueado debe poder llamar a /auth/me, /auth/refresh,
