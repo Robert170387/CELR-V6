@@ -208,13 +208,31 @@ el wiring en el payload y (opcional) una columna de KMS en la tabla.
 > obligatorio cuando cambian seeds, migraciones o Dockerfile. Gates de build, startup, health,
 > B2, E2E 5/5 y baseline quedaron verdes.
 
+> ✅ **Cerrada (2026-09-25):** **Módulo de Usuarios** — A1 `2b7f784` (identidad canónica:
+> `cedula UNIQUE NULL` + `conductor_id UNIQUE` parcial, correo nullable, política de contraseñas),
+> A2 `e7d57b2` (login por `identificador`: cédula **o** correo), A3.1 `dc6421d` (enlace por email,
+> respuesta genérica sin enumerar cuentas), A3.2 `0e6d2b3` (temporal asistida con matriz de 6
+> roles), A3.3 `e8fd8bd` (código offline de 6 dígitos con TTL e `intentos_max`), A3.4 `6eaba0c` +
+> `282540f` (auditoría sin secretos en el rastro), A4 `4c5ba07` (enforcement del primer login),
+> A5.1 `06c0b1a` (CRUD), A5.2 `a08fdfa` (último admin + CLI break-glass), A5.3 `b4b1426` +
+> `99cfb4d` (UI de gestión), A5.4 `f514341` (UI de recuperación pública), más los micro-fixes
+> `3b6367e` (logging) y `3a2046d` (suites resistentes a datos reales).
+>
+> Una persona = una cuenta; sin personas jurídicas. Tres vías de recuperación (enlace por buzón,
+> temporal asistida por admin, código offline) y ninguna de las tres revela si la cuenta existe.
+> El `correo` nullable tiene una consecuencia operativa que conviene no olvidar: **una cuenta sin
+> correo registrado no tiene recuperación por sí sola**, y la UI no puede avisárselo al usuario
+> sin convertirse en un oráculo de enumeración. Su salida es el código offline o el reset
+> asistido. Decisiones de diseño en `DECISIONES_MODULO_USUARIOS.md`; deuda técnica en
+> `INSTRUCCIONES_OPENCODE.md` §4.
+
 **Fases candidatas restantes:**
 | Fase candidata | Qué implica | Costo |
 |---|---|---|
 | **Movimientos bancarios — pantalla** | UI de `movimientos_bancarios` + cruce anticipos | Frontend |
 | **B1 / B3 / B4 / B5 / B6** | Decisiones de negocio/seguridad en `INSTRUCCIONES_OPENCODE.md` §8 | varía |
 | **B7 / B8 — contrato `owner` y saldos** | Decisiones de dominio pendientes; estado documentado, sin fixes | Pausado |
-| **Módulo de Usuarios** | Decisiones cerradas (2026-09-25); plan A1–A5 desbloqueado. Diseño en `DECISIONES_MODULO_USUARIOS.md` | A1 |
+| ~~Módulo de Usuarios~~ | **Cerrado 2026-09-25** (ver arriba) | — |
 
 
 ### B6 — Regla 4 (componente saldo): no forzable hoy
@@ -344,6 +362,12 @@ Reglas que aplican a la ejecución de la fase ODT (y a cualquier fase futura):
   simplificada (sin personas jurídicas); correo nullable; cardinalidad 1:1
   opcional. Commit de esta sub-fase: `docs(usuarios): cierra decisiones
   bloqueantes del modulo de Usuarios`.
+
+- ✅ **Módulo de Usuarios — implementación completa (2026-09-25, §6):** A1 `2b7f784`,
+  A2 `e7d57b2`, A3.1 `dc6421d`, A3.2 `0e6d2b3`, A3.3 `e8fd8bd`, A3.4 `6eaba0c` + `282540f`,
+  A4 `4c5ba07`, A5.1 `06c0b1a`, A5.2 `a08fdfa`, A5.3 `b4b1426` + `99cfb4d`, A5.4 `f514341`,
+  micro-fixes `3b6367e` (logging) y `3a2046d` (suites). Cierre del módulo: 21 suites
+  backend en verde, smoke, E2E 5/5 y `npm run build` con `tsc -b`.
 
 ---
 

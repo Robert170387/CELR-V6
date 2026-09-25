@@ -123,8 +123,8 @@ venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
 ## Pruebas de la suite backend
 
 Las suites backend usan la BD real (`celr_v6_db`) y tienen limpieza propia al
-final. `test_fresh_db.py` es la excepción: crea y destruye únicamente
-`celr_v6_fresh_test`, sin tocar la BD real.
+final. `test_fresh_db.py` y `test_a1_guard_downgrade.py` son la excepción: cada
+una crea y destruye su propia BD desechable, sin tocar `celr_v6_db`.
 ```
 set PYTHONPATH=.
 set DATABASE_URL=postgresql://postgres:admin@localhost:5433/celr_v6_db
@@ -136,10 +136,75 @@ venv\Scripts\python.exe scripts/test_put_delete.py
 venv\Scripts\python.exe scripts/test_ocr.py
 ```
 
-### Credenciales de prueba
-- `test@celr.com` / `admin123` (admin)
-- `cliente@celr.com` / `cliente123` (cliente)
-- `admin2@celr.com` / `admin123` (admin — creado por el test de liquidaciones)
+Son **21 suites** (`test_*.py`). La lista completa, con qué cubre cada una y qué
+gate exige cada una, está en `INSTRUCCIONES_OPENCODE.md` §3 — ese es el documento
+que hay que leer, no este resumen.
+
+> **Ningún test puede afirmar conteos globales de la app DB** (`usuarios=7`,
+> `gastos=37`, `ConductorModel.id == 2`). La BD de desarrollo acumula datos reales
+> y otras suites borran lo que crean, así que un assert absoluto pasa en una BD
+> limpia y falla con el uso diario. Los tests miden delta, filtran por sus propias
+> filas, o construyen un escenario controlado y lo restauran. Ocurrió en
+> `test_reset_asistido` (TRA-13), `test_ultimo_admin` (TUA-2) y `test_usuarios_crud`
+> (TUC-9); ver la norma en `INSTRUCCIONES_OPENCODE.md` §4.
+
+> **`scripts/verify_seed.py` NO es una suite y no está en el gate.** Verifica que un
+> seed se aplicó completo (espera 24 viajes, 37 gastos, 6 proveedores), así que
+> **solo es válido en una BD recién sembrada**. Contra la BD de desarrollo falla a
+> propósito. No convertirlo a delta: su valor es detectar un seed a medias.
+
+### Credenciales de prueba — SOLO desarrollo local
+
+Estas cuentas las crea `seed_demo.py`, que **rechaza `ENVIRONMENT=production`** y
+exige `CELR_ALLOW_DEMO_SEED=1`. En Render nunca existen. No usarlas ni
+documentarlas como credenciales de despliegue.
+
+- `test@celr.com` / `admin123` (admin de la demo)
+- `admin2@celr.com` / `admin123` (lo crea `test_liquidaciones.py`)
+
+**No existe `cliente@celr.com`**: `seed_demo.py` no lo crea y su creación sigue
+pendiente de la decisión de negocio B1. Cualquier doc que lo liste como
+credencial válida está equivocada.
+
+## Módulo de Usuarios (cerrado 2026-09-25)
+
+Identidad, recuperación de credenciales, enforcement, auditoría, CRUD y UI.
+Diseño y decisiones en `DECISIONES_MODULO_USUARIOS.md`; rastro de commits en
+`INSTRUCCIONES_OPENCODE.md` §5.
+
+**Modelo.** Una persona = una cuenta. `usuarios.cedula VARCHAR(20) UNIQUE NULL` es
+la identidad canónica, `conductor_id` lleva UNIQUE parcial, y `correo` es nullable
+(A1 no hace backfill: hay cuentas sin cédula). Sin personas jurídicas.
+
+**Login.** `POST /auth/login` acepta `identificador` = cédula **o** correo
+(A2). `correo` se conserva como alias legacy en el schema.
+
+**Tres vías de recuperación, todas públicas** (A3.1 / A3.2 / A3.3):
+
+| Vía | Quién la dispara | Prueba de identidad |
+|---|---|---|
+| Enlace por email — `POST /auth/forgot-password` | el usuario | el buzón (exige `correo`) |
+| Temporal assistida — `POST /usuarios/{id}/reset-password` | un admin | la matriz de roles `ROLES_OBJETIVO_POR_EJECUTOR` |
+| Código offline — `POST /usuarios/{id}/reset-codigo` + `POST /auth/reset-codigo` | un admin | un código de 6 dígitos con TTL e `intentos_max` |
+
+`forgot-password` responde **200 con el mismo texto exista o no la cuenta**: un
+404 o un mensaje distinto sería un oráculo de enumeración. En desarrollo el email
+sale por `LogEmailBackend` con `logger.info` (por eso `main.py` configura
+`basicConfig`); en producción ese backend lanza 503 y el log no se emite.
+
+**Enforcement (A4).** Toda cuenta bornada con `debe_cambiar_contrasena=True`
+—incluidas las creadas desde la pantalla de gestión— queda bloqueada en todos los
+endpoints de negocio hasta que cambie la contraseña.
+
+**Auditoría (A3.4).** `auditoria_evento` registra eventos sensibles con actor,
+objetivo, IP y user-agent, y **nunca** la credencial. La tabla es append-only por
+convención y **no entra en el baseline del gate**: es un log, no un estado.
+
+**UI.** `/gestion-usuarios` (CRUD con filtros y paginación, reset, código,
+activar/desactivar, degradar) y las tres pantallas públicas de recuperación.
+Las cuentas con `correo` pueden usar el enlace; las que no, el código offline o el
+reset asistido — la UI no puede decírselo, porque hacerlo confirmaría si la cuenta
+existe.
 
 ## Autenticación: almacenamiento de tokens (trade-off)
 - `access_token` y `refresh_token` viven en **localStorage** (claves `celr_token`,

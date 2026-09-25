@@ -55,8 +55,12 @@ aislada y usa una BD desechable. Las demás suites tienen limpieza propia al fin
 - `backend/scripts/test_reset_asistido.py` — reset admin con contraseña temporal (A3.2), TRA-1..TRA-16; usa la BD real con limpieza propia.
 - `backend/scripts/test_reset_codigo.py` — reset por código offline de 6 dígitos (A3.3), TRC-1..TRC-16; usa la BD real con limpieza propia.
 - `backend/scripts/test_auditoria.py` — auditoría de eventos sensibles (A3.4), TAUD-1..TAUD-12; usa la BD real y limpia solo sus propias filas.
+- `backend/scripts/test_ultimo_admin.py` — protección del último admin (A5.2), TUA-1..TUA-12; el CLI break-glass se prueba por subprocess. Neutraliza los admins ajenos al test y los restaura al terminar.
+- `backend/scripts/test_usuarios_crud.py` — CRUD de usuarios (A5.1), TUC-1..TUC-18; crea su propio conductor de flota y lo borra al terminar.
 - `scripts/e2e_flow_test.py` — against a **running server**; set `CELR_BASE_URL` (default `http://localhost:8000`; use `http://localhost:8001` for the Docker backend).
-- La lista completa de **18 suites** y gates está centralizada en `INSTRUCCIONES_OPENCODE.md` §3.
+- La lista completa de **21 suites** y gates está centralizada en `INSTRUCCIONES_OPENCODE.md` §3.
+  El conteo se verifica contra el disco (`(Get-ChildItem backend\scripts\test_*.py).Count`),
+  no contra el documento: la etiqueta "suite N" es histórica y no cubre todos los archivos.
 
 Credentials: `test@celr.com` / `admin123` (admin), `cliente@celr.com` / `cliente123` (cliente). Seed admin starts with `debe_cambiar_contrasena=True` (first login is forced through `/cambiar-contrasena`).
 

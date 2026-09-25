@@ -19,11 +19,14 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 
 ## 3. Gates antes de commitear
 
-1. **Backend:** las **18** suites `backend/scripts/test_*.py` en verde (desde `backend/`, con
+1. **Backend:** las **21** suites `backend/scripts/test_*.py` en verde (desde `backend/`, con
    `PYTHONPATH=.` y `DATABASE_URL` → `:5433`), con el venv:
    `venv\Scripts\python.exe scripts\test_<suite>.py` — los scripts imprimen checks `✓`/`✗`;
    bajo pipe en Windows ejecutar con `$env:PYTHONIOENCODING="utf-8"` (cp1252 rompe esos
-   caracteres). `test_cierre_mensual.py` es la suite de la FASE B2;
+   caracteres). Verificar el conteo contra el disco, no contra este documento:
+   `(Get-ChildItem backend\scripts\test_*.py).Count` → esperado 21. La etiqueta "suite N" es
+   histórica y no cubre todos los archivos; el número que manda es el de los archivos.
+   `test_cierre_mensual.py` es la suite de la FASE B2;
    `test_flypass_import.py` cubre TF1–TF8 y `test_flypass_list.py` cubre TL1–TL9.
    `test_fresh_db.py` es la suite 12: crea y destruye `celr_v6_fresh_test` (nunca toca
    `celr_v6_db`), requiere PostgreSQL vivo en `:5433` y valida TM1–TM9.
@@ -42,6 +45,12 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
    agotamiento de intentos, 401 genérico, el código nunca en logs ni en claro en la BD.
    `test_auditoria.py` es la suite 18: auditoría de eventos (A3.4), TAUD-1..TAUD-12 — verifica
    contenido de las filas y que ningún secreto quede en el rastro.
+   `test_ultimo_admin.py` es la suite 19: protección del último admin (A5.2), TUA-1..TUA-12 —
+   invariante de nunca quedar cero admins, auto-acción bloqueada, y el break-glass CLI probado
+   **por subprocess** (una herramienta de emergencia que solo funciona importada no lo es).
+   `test_usuarios_crud.py` es la suite 20: CRUD de usuarios (A5.1), TUC-1..TUC-18 — las cuatro
+   operaciones que consumen `ROLES_OBJETIVO_POR_EJECUTOR` gobernadas por la misma matriz, y que
+   la contraseña temporal nunca se filtre a logs, URL ni `password_reset_token`.
 2. **Humo:** `venv\Scripts\python.exe scripts\smoke.py` → `[SMOKE OK]`.
 3. **E2E** (servidor vivo, p. ej. Docker `:8001`):
    `$env:CELR_BASE_URL="http://localhost:8001"; $env:PYTHONUTF8="1";
@@ -86,11 +95,6 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 - **Append-only:** `auditoria_evento` es append-only por **convención**, no por restricción: hoy
   nada impide `UPDATE`/`DELETE` sobre las filas, así que cualquier acceso a la BD puede reescribir la
   evidencia. La restricción y la política de retención se deciden juntas cuando haya volumen.
-- **Baseline de `auditoria_evento`:** **no se espera 0.** Desde A3.4 cualquier suite que haga login
-  escribe un `login_ok`, así que la tabla crece con cada corrida de los gates. Eso es correcto: es un
-  log, no un estado. **No borrar filas para que el número quede lindo** — eso violaría el append-only
-  y borraría justamente la evidencia de que los hooks funcionan. Lo que sí se limpia es lo que genera
-  `test_auditoria.py`, y solo lo suyo.
 
 ## 4. Entorno y trampas
 
@@ -181,9 +185,92 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 - **Dependencia Excel:** `openpyxl==3.1.5` es la dependencia compartida para importadores
   `.xlsx`; queda disponible para el importador Flypass y para futuros importadores bancarios.
 
+### Doctrina: `auditoria_evento` no entra en el baseline del gate
+
+> **No se espera 0 filas y nunca se limpia para cuadrar el gate.** El propósito de la tabla es
+> acumular: es un log, no un estado. Desde A3.4 cualquier suite que haga login escribe un
+> `login_ok`, así que crece con cada corrida de los gates — eso es la prueba de que los hooks
+> funcionan, no suciedad. Un log que se borra para que el número quede lindo es un log en el que
+> no se puede confiar, y borraría justamente la evidencia.
+>
+> El gate verifica **integridad estructural** (migración aplicada, tabla existe) y **contenido**
+> vía `test_auditoria.py` (TAUD-1..TAUD-12), que sí limpia lo propio y solo lo propio. Los
+> conteos de `auditoria_evento` **no son invariante** y no se afirman en ninguna suite.
+
+### Normas
+
+Estas cuatro no son consejos: cada una se convirtió en norma porque falló al menos una vez de
+forma silenciosa, y el costo de no aplicarlas no aparece en los tests.
+
+1. **Fallo silencioso prohibido.** Todo `catch` debe **registrar el error e informar al usuario**.
+   Nunca cerrar un camino de error sin dejar rastro visible. La subclase más peligrosa es el **403
+   descartado en la UI**: el backend responde correctamente, la capa de presentación lo tira, y
+   ningún test de endpoint lo detecta porque el endpoint sí se comportó bien.
+   *Ocurrencias:* `debe_cambiar_contrasena` se escribía sin leerse (A4);
+   `registrar_intento_fallido` sin llamada (A3.3); tres en `GestionUsuarios.tsx` (A5.3 —
+   `setErrorModal` pintado fuera de todo modal, estado `copiado` desconectado del JSX, `catch`
+   mudo en `writeText`); y el interceptor de 401 de `apiClient` (A5.4) que convertía un
+   "token inválido" en una redirección silenciosa a `/login`.
+
+2. **Campo o función sin consumidor, prohibido.** Todo campo nuevo necesita un lector real, toda
+   función nueva un caller, y todo estado (`setX`) una UI que lo lea. Si es "reservado para fase
+   X", se marca explícitamente en el código. Es la misma raíz que el punto 1: un valor que se
+   escribe y nadie lee es seguridad decorativa.
+   *Ocurrencias:* `debe_cambiar_contrasena` (A4), `registrar_intento_fallido` (A3.3),
+   `temporal.mensaje` y `codigo.mensaje` que el backend enviaba y el JSX tenía hardcodeados
+   (A5.3), y el check de "Copiado" que era código muerto porque leía un campo que solo se
+   escribía en `false`.
+
+3. **Baseline absoluto en app DB, prohibido.** Ningún test puede afirmar conteos globales de la
+   app DB (`usuarios=7`, `gastos=37`, `ConductorModel.id == 2`). El usuario acumula datos reales
+   y otras suites borran lo que crean: un assert así pasa en una BD limpia y falla con el uso
+   diario, que es lo peor porque el gate se pone rojo sin que nadie haya tocado el código. Los
+   tests miden **delta** (snapshot antes/después), filtran por sus propias filas, o construyen un
+   **escenario controlado** y lo restauran.
+   *Ocurrencias:* `test_fresh_db` (precondición), `smoke.py` (conteos), `test_flypass_list`
+   (total), `test_reset_asistido` TRA-13, `test_ultimo_admin` TUA-2 y `test_usuarios_crud` TUC-9
+   — las tres últimas arregladas en `3a2046d`.
+
+4. **Trampa: el service worker del PWA sirve el bundle viejo.** Al verificar cambios de UI, el SW
+   puede responder con el build anterior y producir un falso "el fix no funciona". Siempre
+   **Ctrl+Shift+R**, o desregistrar el SW en DevTools → Application → Service Workers, antes de
+   concluir que un cambio de frontend no surtió efecto. Ocurrió en A5.3 (el `dist` del contenedor
+   sí era nuevo y el navegador servía el viejo) y ya había mordido antes en la sub-fase 2.
+
+### Deuda técnica activa
+
+| # | Deuda | Nota |
+|---|---|---|
+| `IP-real-detras-de-proxy` | `Dockerfile:40` corre uvicorn sin `--proxy-headers --forwarded-allow-ips=*` | En Render, `request.client.host` es la IP del proxy. Afecta el rate limit de `/auth/reset-codigo` y la columna `ip` de auditoría. No sacar conclusiones de esa columna sin corregir el `CMD`. |
+| `conteo-admins-cache` | `es_ultimo_admin_activo` hace un COUNT en cada llamada | Candidato a índice parcial `WHERE rol='admin' AND activo` cuando el volumen lo justifique. Hoy es correcto y barato. |
+| `usuario_objetivo_id` | FK a `usuarios` en `auditoria_evento` | Rompe el día que se audite una entidad que no sea usuario. Alternativa futura: `objetivo_tipo + objetivo_id` sin FK. |
+| `refresh_tokens-FK` | `refresh_tokens.usuario_id` **sin** `ON DELETE CASCADE` | Correcto en producción (el producto no borra usuarios, hace soft-delete: es un guardrail). Solo los tests lo sufren: un `DELETE FROM usuarios` se rechaza y los contadores de los demás statements del cleanup se leen como éxito. Borrar en **orden inverso de FK** y **dentro de una transacción**, y verificar después. |
+| `verify_seed-scope` | Verifica el seed completo (espera 24 viajes, 37 gastos, 6 proveedores) | **Solo válido en BD recién sembrada**; no es parte del gate. Con la BD de desarrollo en uso falla por ~10 baselines absolutos. No convertirlo a delta: su valor es detectar un seed a medias. Debería fallar con un mensaje claro del tipo "esta BD no parece recién sembrada". |
+| `A2.1-indices-funcionales` | `func.lower()` no usa los índices actuales de `cedula`/`correo` | Índices funcionales sobre `lower(...)` cuando el volumen de la tabla lo justifique. |
+| `logging-en-produccion` | `main.py` configura `basicConfig` con `INFO` fuera de producción y `WARNING` en producción | Hoy ningún `logger.info` filtra un secreto, así que el guard es preventivo. Si se agrega uno con una credencial dentro, ese log no debe quedar en `INFO`. |
+
 ## 5. Estado actual
 
-- Rama `main` y backup: **conteo vivo** con `git rev-list --count origin/main..HEAD` (fases mezcladas: FASE A2 + FASE 2 + docs 2.G + alineación ODT + FASE Gastos + FASE Liquidaciones + docs). No se pinea el número exacto aquí para evitar el off-by-one autoreferencial (ver `e474022`).
+- **FASE Módulo de Usuarios — CERRADA (2026-09-25).** Identidad, recuperación de credenciales,
+  enforcement, auditoría, CRUD y UI. Decisiones de diseño en `DECISIONES_MODULO_USUARIOS.md`;
+  deuda técnica activa en §4.
+  | Sub-fase | Commit | Qué cambió |
+  |---|---|---|
+  | A1 | `2b7f784` | Identidad canónica: `cedula UNIQUE NULL` + `conductor_id UNIQUE` parcial, correo nullable, política de contraseñas, migración `d4e5f6a7b8c9` |
+  | A2 | `e7d57b2` | Login por `identificador` (cédula **o** correo); `correo` queda como alias legacy |
+  | A3.1 | `dc6421d` | Reset por enlace: token en email, respuesta genérica sin enumerar cuentas, guard 503 en producción |
+  | A3.2 | `0e6d2b3` | Reset asistido por admin con contraseña temporal; matriz de 6 roles derivada del enum |
+  | A3.3 | `e8fd8bd` | Código offline de 6 dígitos con TTL, `intentos`/`intentos_max` y rate limit por IP |
+  | A3.4 | `6eaba0c` + `282540f` | `auditoria_evento` con hooks en eventos sensibles, sin secretos en el rastro |
+  | A4 | `4c5ba07` | Enforcement del primer login: `debe_cambiar_contrasena` deja de ser decorativo |
+  | A5.1 | `06c0b1a` | CRUD de usuarios: listar/crear/editar/activar, `extra="forbid"`, `X-Total-Count` |
+  | A5.2 | `a08fdfa` | Protección del último admin + CLI break-glass (`scripts/admin_reset.py`, dry-run por defecto) |
+  | A5.3 | `b4b1426` + `99cfb4d` | Pantalla `/gestion-usuarios`; el segundo commit corrige 4 fallos silenciosos que solo se veían mirando la UI |
+  | A5.4 | `f514341` | Pantallas públicas `/recuperar`, `/reset-password`, `/reset-codigo`; y el interceptor de 401 que expulsaba sin explicar |
+  | fix logging | `3b6367e` | `basicConfig` en `main.py`: el email mock emitía a nivel invisible y `/recuperar` no producía nada legible |
+  | fix suites | `3a2046d` | Las 3 suites de A5 miden delta o escenario controlado en vez de baseline global |
+
+- Rama `main` y backup: **conteo vivo** con `git rev-list --count origin/main..HEAD` (fases mezcladas: FASE A2 + FASE 2 + docs 2.G + alineación ODT + FASE Gastos + FASE Liquidaciones + Módulo de Usuarios + docs). No se pinea el número exacto aquí para evitar el off-by-one autoreferencial (ver `e474022`).
 - **Backup remoto:** `origin/fase-a2-fase-2-local` se mantiene **al día con `main` local** tras cada sesión. Verificar con `git rev-list --left-right --count origin/fase-a2-fase-2-local...main` → esperado `0 0`. El merge a `origin/main` sigue pendiente.
 - Pendiente real: **merge/push a `main`** (PAT del usuario) + deploy manual en Render.
 - **FASE 2 cerrada:**
@@ -296,11 +383,13 @@ Complementa a `AGENTS.md` (convenciones del repo) y a `CONTEXTO_DEEPSEEK_CELR_v6
 Decisiones de negocio/arquitectura que quedan **abiertas**; no son decidibles por el agente. El
 consultor previo dejó el marco; quien retome el proyecto debe cerrarlas con el usuario:
 
-> **Módulo de Usuarios:** decisiones bloqueantes cerradas (2026-09-25):
-> no hay personas jurídicas, no todos son conductores, una persona = una
-> cuenta. Diseño: `usuarios.cedula UNIQUE NULL` + `conductor_id UNIQUE NULL` +
-> `correo` nullable. Sin `identificador_fiscal`. Plan A1–A5 desbloqueado; ver
-> `DECISIONES_MODULO_USUARIOS.md`.
+> **Módulo de Usuarios: CERRADO (2026-09-25).** Decisiones de diseño resueltas
+> (no hay personas jurídicas, no todos son conductores, una persona = una cuenta;
+> `usuarios.cedula UNIQUE NULL` + `conductor_id UNIQUE` parcial + `correo` nullable,
+> sin `identificador_fiscal`) y ejecución completa A1–A5.4 más los micro-fixes
+> `3b6367e` y `3a2046d`. El rastro de commits está en §5; el diseño en
+> `DECISIONES_MODULO_USUARIOS.md`. No queda ninguna decisión de este módulo abierta:
+> las deudas técnicas que dejó están listadas en §4 (Deuda técnica activa), no aquí.
 
 | # | Pregunta | Implica si se acepta |
 |---|---|---|
