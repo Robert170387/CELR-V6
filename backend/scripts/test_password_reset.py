@@ -91,6 +91,10 @@ def run() -> None:
 
     db = SessionLocal()
     buckets_previos = {k: list(v) for k, v in _fallidos.items()}
+    # Si el test muere a mitad, el entorno no debe quedar en 'production'.
+    from app.core.config import settings as _app_settings
+
+    entorno_global_previo = _app_settings.ENVIRONMENT
     claves_previas = {
         c
         for (c,) in db.query(ConfiguracionSistema.clave).all()
@@ -372,10 +376,65 @@ def run() -> None:
         assert len(captura.registros) == 1, "TR-12: forgot no envio el email al estar bloqueado"
         print("  [TR-12] login bloqueado (429) no arrastra a forgot (200 + email): PASADO")
 
+        # ---------------- TR-13: guard de produccion ----------------
+        # Sin proveedor de email, forgot debe responder 503 (dependencia no
+        # disponible) y NO 500: un 500 en un endpoint publico parece un bug de
+        # la aplicacion y, con debug activo, puede filtrar el traceback.
+        from fastapi import HTTPException
+
+        from app.core.config import settings as app_settings
+        from app.services.email import get_email_backend
+
+        entorno_previo = app_settings.ENVIRONMENT
+
+        # Unidad: el backend se niega a enviar en produccion, con 503.
+        app_settings.ENVIRONMENT = "production"
+        try:
+            get_email_backend().enviar("a@b.com", "asunto", "cuerpo")
+            print("  [TR-13] FALLA: el backend de email envio en produccion")
+            raise AssertionError("El guard de produccion no bloqueo el envio")
+        except HTTPException as exc:
+            assert exc.status_code == 503, f"TR-13: esperaba 503, vino {exc.status_code}"
+            assert exc.detail == "Servicio de email no disponible", (
+                f"TR-13: detalle inesperado: {exc.detail!r}"
+            )
+        print("  [TR-13] el backend rechaza el envio en produccion con 503: PASADO")
+
+        # Integracion: el endpoint traduce a 503.
+        _fallidos.clear()
+        captura.registros.clear()
+        db.expire_all()
+        vivos_antes = db.query(PasswordResetToken).filter(
+            PasswordResetToken.usuario_id == uid,
+            PasswordResetToken.usado_en.is_(None),
+            PasswordResetToken.revocado.is_(False),
+        ).count()
+        r13 = client.post("/api/v1/auth/forgot-password", json={"identificador": CORREO})
+        assert r13.status_code == 503, (
+            f"TR-13: en produccion deberia dar 503: {r13.status_code} {r13.text}"
+        )
+        assert r13.json().get("detail"), "TR-13: el 503 deberia traer detalle"
+        assert not captura.registros, "TR-13: no se debio enviar ningun email"
+        app_settings.ENVIRONMENT = entorno_previo
+        db.expire_all()
+        # El 503 no debe dejar un token mas: se compara contra el estado previo,
+        # no contra cero (TR-12 dejo tokens pendientes legítimos).
+        vivos_despues = db.query(PasswordResetToken).filter(
+            PasswordResetToken.usuario_id == uid,
+            PasswordResetToken.usado_en.is_(None),
+            PasswordResetToken.revocado.is_(False),
+        ).count()
+        assert vivos_despues == vivos_antes, (
+            f"TR-13: el 503 dejo un token sin enviar (antes={vivos_antes}, "
+            f"despues={vivos_despues}); el rollback del endpoint no alcanzo"
+        )
+        print("  [TR-13] forgot en produccion -> 503 y sin token huerfano: PASADO")
+
         print("\n[TR] OK: todos los casos de A3.1 pasaron")
     finally:
         logger_email.removeHandler(captura)
         logger_email.setLevel(nivel_previo)
+        _app_settings.ENVIRONMENT = entorno_global_previo
         try:
             _fallidos.clear()
             _fallidos.update(buckets_previos)

@@ -189,12 +189,19 @@ def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
             # El TTL del mensaje se lee del mismo lugar que el del token: si se
             # hardcodeara aqui, podria prometer 2 horas con un token de 1.
             horas = int(ttl_por_tipo(db, "enlace").total_seconds() // 3600)
-            get_email_backend().enviar(
-                usuario.correo,
-                "CELR v6 - Recuperacion de contrasena",
-                f"Para restablecer tu contrasena usa este enlace: {enlace}\n"
-                f"El enlace expira en {horas} hora(s).",
-            )
+            try:
+                get_email_backend().enviar(
+                    usuario.correo,
+                    "CELR v6 - Recuperacion de contrasena",
+                    f"Para restablecer tu contrasena usa este enlace: {enlace}\n"
+                    f"El enlace expira en {horas} hora(s).",
+                )
+            except HTTPException:
+                # El backend ya devuelve 503. Solo hay que deshacer el token que
+                # se alcanzo a generar: sin rollback, el 503 dejaria un token
+                # vivo que nadie recibio y que la sesion de reintento invalidaria.
+                db.rollback()
+                raise
         db.commit()
 
     # Sea como sea, la respuesta es identica.

@@ -12,6 +12,8 @@ sola linea en get_email_backend; el resto de la app no cambia.
 import logging
 from typing import Protocol
 
+from fastapi import HTTPException
+
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -28,13 +30,19 @@ class LogEmailBackend:
 
     Incluye el token en claro a proposito: en local es la unica forma de
     completar el flujo sin correo. Por eso se niega a correr en produccion.
+
+    Levanta 503 (HTTPException) y no 500: sin proveedor configurado, la
+    dependencia —no la aplicacion— no puede atender. Sigue siendo un fallo
+    ruidoso, pero no parece un bug ni arrastra traceback al cliente.
+    Precedente: operaciones.py y ocr_service.py tambien levantan HTTPException
+    desde la capa de servicios.
     """
 
     def enviar(self, destinatario: str, asunto: str, cuerpo: str) -> None:
         if settings.ENVIRONMENT == "production":
-            raise RuntimeError(
-                "Email provider no configurado para produccion. "
-                "Configure un backend real antes de usar reset por email."
+            raise HTTPException(
+                status_code=503,
+                detail="Servicio de email no disponible",
             )
         logger.info(
             "[EMAIL-MOCK] to=%s subject=%s body=%s", destinatario, asunto, cuerpo
