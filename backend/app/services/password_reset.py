@@ -20,6 +20,7 @@ from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import ConfiguracionSistema
@@ -37,6 +38,10 @@ DEFAULT_TTL_ENLACE_HORAS = 2
 DEFAULT_TTL_CODIGO_MINUTOS = 15
 DEFAULT_INTENTOS_ENLACE = 5
 DEFAULT_INTENTOS_CODIGO = 5
+
+# Intentos de generacion ante colision de hash (A3.3). Con 10^6 codigos la
+# probabilidad es baja, pero una colision sin manejar seria un 500.
+MAX_INTENTOS_GENERACION = 5
 
 _TTL_POR_TIPO = {"enlace": CONFIG_TTL_ENLACE_HORAS, "codigo": CONFIG_TTL_CODIGO_MINUTOS}
 _INTENTOS_POR_TIPO = {
@@ -110,28 +115,47 @@ def generar_token_reset(db: Session, usuario_id: int, tipo: str = "enlace") -> s
     Para 'enlace' el secreto son 64 bytes aleatorios (no bruteforceable).
     Para 'codigo' son 6 digitos, que sí lo son: por eso ese flujo necesita TTL
     corto y limite de intentos.
+
+    Colisiones: `token_hash` es UNIQUE global. Para 'enlace' es practicamente
+    imposible; para 'codigo' hay 10^6 valores y las filas viejas NO se borran
+    (solo se revocan), asi que el mismo codigo puede volver a salir y chocar
+    contra su propio hash previo. Se reintenta con SAVEPOINT: un `db.rollback()`
+    normal descartaria tambien la revocacion de los tokens activos que se hizo
+    justo antes.
     """
     if tipo not in ("enlace", "codigo"):
         raise ValueError(f"tipo invalido: {tipo}")
 
     _revocar_activos(db, usuario_id, tipo)
+    ttl = ttl_por_tipo(db, tipo)
+    intentos_max = intentos_max_por_tipo(db, tipo)
 
-    if tipo == "codigo":
-        token_plano = f"{secrets.randbelow(10 ** 6):06d}"
-    else:
-        token_plano = secrets.token_urlsafe(64)
-
-    db.add(
-        PasswordResetToken(
-            usuario_id=usuario_id,
-            tipo=tipo,
-            token_hash=_hash_token(token_plano),
-            expira_en=datetime.now(timezone.utc) + ttl_por_tipo(db, tipo),
-            intentos_max=intentos_max_por_tipo(db, tipo),
+    for _ in range(MAX_INTENTOS_GENERACION):
+        token_plano = (
+            f"{secrets.randbelow(10 ** 6):06d}"
+            if tipo == "codigo"
+            else secrets.token_urlsafe(64)
         )
+        savepoint = db.begin_nested()
+        try:
+            db.add(
+                PasswordResetToken(
+                    usuario_id=usuario_id,
+                    tipo=tipo,
+                    token_hash=_hash_token(token_plano),
+                    expira_en=datetime.now(timezone.utc) + ttl,
+                    intentos_max=intentos_max,
+                )
+            )
+            db.flush()
+        except IntegrityError:
+            savepoint.rollback()
+            continue
+        return token_plano
+
+    raise RuntimeError(
+        f"No se pudo generar un token unico tras {MAX_INTENTOS_GENERACION} intentos"
     )
-    db.flush()
-    return token_plano
 
 
 def validar_token_reset(

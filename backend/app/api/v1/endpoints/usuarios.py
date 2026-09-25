@@ -14,9 +14,11 @@ from app.api.v1.deps import RoleChecker, get_current_user
 from app.core.roles import RolUsuario
 from app.core.security import hash_password
 from app.db.session import get_db
+from app.models.flota import PasswordResetToken
 from app.models.flota import RefreshToken as RefreshTokenModel
 from app.models.flota import Usuario as UsuarioModel
-from app.schemas.usuario import AdminResetPasswordResponse
+from app.schemas.usuario import AdminResetCodigoResponse, AdminResetPasswordResponse
+from app.services.password_reset import generar_token_reset, ttl_por_tipo
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +57,39 @@ ROLES_OBJETIVO_POR_EJECUTOR: Dict[str, FrozenSet[str]] = {
 router = APIRouter(dependencies=[Depends(RoleChecker(ROLES_RESET_PERMITIDOS))])
 
 
+def _resolver_objetivo(db: Session, usuario_id: int, current_user: UsuarioModel) -> UsuarioModel:
+    """Valida el objetivo de un reset. Compartido por A3.2 y A3.3.
+
+    Aplica las tres reglas que no dependen de como se entrega la credencial:
+    existe, no sos vos mismo, y tu rol puede resetear ese rol. Que las dos
+    vias compartan esta funcion es lo que garantiza que un endpoint nuevo no
+    se CUERDE con una matriz mas laxa.
+    """
+    usuario = db.query(UsuarioModel).filter(UsuarioModel.id == usuario_id).first()
+    if usuario is None:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    # Admin no se resetea a si mismo por esta via. La credencial se muestra una
+    # sola vez: si se pierde, se queda fuera del sistema de gestion de cuentas
+    # y no hay forma de volver. Para su propia cuenta esta el flujo
+    # /auth/forgot-password (que exige correo) o /auth/cambio-contrasena.
+    if usuario.id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No puedes restablecer tu propia contraseña por esta vía",
+        )
+
+    permitidos = ROLES_OBJETIVO_POR_EJECUTOR.get(current_user.rol, frozenset())
+    if usuario.rol not in permitidos:
+        # Mensaje generico a proposito: incluir el rol del objetivo confirmaria
+        # a un ejecutor sin permisos que tipo de cuenta es la que probed.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permisos para restablecer la contraseña de este usuario",
+        )
+    return usuario
+
+
 @router.post(
     "/usuarios/{usuario_id}/reset-password",
     response_model=AdminResetPasswordResponse,
@@ -71,28 +106,7 @@ def reset_password_asistido(
     loguea, nunca se persiste y no vuelve a mostrarse. Por eso va en el cuerpo
     de un POST y no en la URL, que acabaria en los access logs del servidor.
     """
-    usuario = db.query(UsuarioModel).filter(UsuarioModel.id == usuario_id).first()
-    if usuario is None:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-
-    # Admin no se resetea a si mismo por esta via. La temporal se muestra una
-    # sola vez: si el admin la pierde, se queda fuera del sistema de gestion de
-    # cuentas y no hay forma de volver. Para su propia cuenta esta el flujo
-    # /auth/forgot-password (que ademas exige correo) o /auth/cambio-contrasena.
-    if usuario.id == current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No puedes restablecer tu propia contraseña por esta vía",
-        )
-
-    permitidos = ROLES_OBJETIVO_POR_EJECUTOR.get(current_user.rol, frozenset())
-    if usuario.rol not in permitidos:
-        # Mensaje generico a proposito: incluir el rol del objetivo confirmaria
-        # a un ejecutor sin permisos que tipo de cuenta es la que probed.
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permisos para restablecer la contraseña de este usuario",
-        )
+    usuario = _resolver_objetivo(db, usuario_id, current_user)
 
     contrasena_temporal = secrets.token_urlsafe(12)
 
@@ -128,4 +142,60 @@ def reset_password_asistido(
             "El usuario deberá cambiarla al iniciar sesión."
         ),
         debe_cambiar_contrasena=True,
+    )
+
+
+@router.post(
+    "/usuarios/{usuario_id}/reset-codigo",
+    response_model=AdminResetCodigoResponse,
+    status_code=status.HTTP_200_OK,
+)
+def reset_codigo_asistido(
+    usuario_id: int,
+    db: Session = Depends(get_db),
+    current_user: UsuarioModel = Depends(get_current_user),
+):
+    """A3.3 — Genera un codigo de 6 digitos para un usuario sin acceso a email.
+
+    A diferencia de A3.2, esto NO cambia la contrasena: solo emite un codigo que
+    el usuario canjeara en /auth/reset-codigo. La contrasena se cambia cuando
+    el usuario la elija, no cuando el admin lo decida.
+
+    No se envia por email a proposito: el caso de uso es justamente quien no
+    tiene buzon. El admin lo dicta por telefono/WhatsApp/presencial. Por eso
+    este endpoint NO toca LogEmailBackend — si lo hiciera, el codigo caeria en
+    los logs de la aplicacion.
+    """
+    usuario = _resolver_objetivo(db, usuario_id, current_user)
+
+    codigo = generar_token_reset(db, usuario.id, tipo="codigo")
+    db.commit()
+    fila = (
+        db.query(PasswordResetToken)
+        .filter(
+            PasswordResetToken.usuario_id == usuario.id,
+            PasswordResetToken.tipo == "codigo",
+        )
+        .order_by(PasswordResetToken.id.desc())
+        .first()
+    )
+    minutos = int(ttl_por_tipo(db, "codigo").total_seconds() // 60)
+
+    # Traza minima: QUIEN genero el codigo y para QUIEN. Nunca el codigo.
+    logger.info(
+        "Codigo de reset generado: usuario_id=%s por usuario_id=%s (rol=%s)",
+        usuario.id,
+        current_user.id,
+        current_user.rol,
+    )
+
+    return AdminResetCodigoResponse(
+        usuario_id=usuario.id,
+        correo=usuario.correo,
+        codigo=codigo,
+        expira_en=fila.expira_en if fila else None,
+        mensaje=(
+            f"Díctele el código al usuario por un canal seguro. No se mostrará de "
+            f"nuevo. Caduca en {minutos} minutos."
+        ),
     )

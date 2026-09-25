@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from sqlalchemy import select, update
 from datetime import timedelta, datetime, timezone
@@ -23,6 +23,7 @@ from app.services.email import get_email_backend
 from app.services.password_reset import (
     generar_token_reset,
     marcar_token_consumido,
+    registrar_intento_fallido,
     ttl_por_tipo,
     usuario_por_id,
     validar_token_reset,
@@ -35,6 +36,7 @@ from app.schemas.token import (
     CambioContrasenaRequest,
     ForgotPasswordRequest,
     ResetPasswordRequest,
+    ResetCodigoRequest,
 )
 
 router = APIRouter()
@@ -257,6 +259,81 @@ def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
     )
     db.commit()
     return {"detail": "Contraseña actualizada"}
+
+
+@router.post("/auth/reset-codigo")
+def reset_con_codigo(
+    data: ResetCodigoRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """A3.3 — Canje de un codigo offline de 6 digitos. Publico por diseno.
+
+    El codigo es la prueba. Este endpoint no recibe identificador de usuario, asi
+    que la unica defense posible contra adivinar el codigo es el limite por IP.
+    OJO: el Dockerfile corre uvicorn SIN `--proxy-headers`, asi que detras de un
+    proxy (Render) `client.host` es la IP del proxy y la cubeta se vuelve global.
+    Por eso el umbral es alto y configurable en vez de estricto: conviene
+    atar el limite que se quiera acuitar, pero no bloquear a todos los usuarios
+    por un proxy compartido. Ver deuda 'rate-limit-IP'.
+    """
+    ip = request.client.host if request.client else "desconocida"
+    clave = f"reset-codigo:{ip}"
+    if excede_limite(clave):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demasiados intentos. Inténtalo nuevamente en 15 minutos.",
+        )
+    registrar_fallo(clave)
+
+    fila = validar_token_reset(db, data.codigo, tipo="codigo")
+    if fila is None:
+        # Unico 401 para codigo inexistente, expirado, revocado o ya usado: no
+        # se distingue, o el endpoint seria un oraculo de que codigos existen.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Código inválido o expirado",
+        )
+
+    usuario = usuario_por_id(db, fila.usuario_id)
+    if usuario is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Código inválido o expirado",
+        )
+
+    # La politica se valida ANTES de consumir (mismo criterio que A3.1: un error
+    # de tecleo no debe matar el codigo). Pero aqui SI se cuenta el intento:
+    # el codigo ya es valido y valido, lo que queda por adivinar es la
+    # contrasena. `intentos` cuenta eso; marcar_usado() sigue reservandose
+    # para el canje exitoso. Al agotar `intentos_max` el codigo se revoca.
+    try:
+        validar_politica_contrasena(
+            data.nueva_contrasena,
+            cedula=usuario.cedula,
+            correo=usuario.correo,
+        )
+    except ValueError as e:
+        registrar_intento_fallido(db, fila)
+        db.commit()
+        raise HTTPException(status_code=422, detail=str(e))
+
+    marcar_token_consumido(db, fila)
+
+    usuario.contrasena_hash = hash_password(data.nueva_contrasena)
+    usuario.debe_cambiar_contrasena = False
+    usuario.password_version = (usuario.password_version or 0) + 1
+    usuario.ultimo_acceso = datetime.now(timezone.utc)
+    db.execute(
+        update(RefreshTokenModel)
+        .where(
+            RefreshTokenModel.usuario_id == usuario.id,
+            RefreshTokenModel.revocado == False,  # noqa: E712
+        )
+        .values(revocado=True)
+    )
+    db.commit()
+    return {"detail": "Contraseña actualizada. Inicia sesión."}
 
 
 @router.post("/auth/cambio-contrasena", response_model=Token)

@@ -43,3 +43,14 @@ class ResetPasswordRequest(BaseModel):
 
     token: str = Field(..., min_length=1, max_length=200)
     nueva_contrasena: str = Field(..., min_length=1, max_length=200)
+
+
+class ResetCodigoRequest(BaseModel):
+    """A3.3 — Canje de un codigo offline de 6 digitos.
+
+    `codigo` es texto a proposito, no int: un int perderia los ceros iniciales
+    ("012345" -> 12345) y el codigo generado los lleva. Se valida por longitud.
+    """
+
+    codigo: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
+    nueva_contrasena: str = Field(..., min_length=1, max_length=200)

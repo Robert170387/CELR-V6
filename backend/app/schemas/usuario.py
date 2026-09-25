@@ -54,6 +54,21 @@ class AdminResetPasswordResponse(BaseModel):
     debe_cambiar_contrasena: bool = True
 
 
+class AdminResetCodigoResponse(BaseModel):
+    """A3.3 — Respuesta de la generacion de un codigo offline.
+
+    El codigo se devuelve UNA sola vez y NO se envia por email: el admin lo
+    dicta al usuario por canal presencial. `expira_en` va en la respuesta para
+    que el admin sepa cuando deja de servir.
+    """
+
+    usuario_id: int
+    correo: Optional[str] = None
+    codigo: str
+    expira_en: datetime
+    mensaje: str
+
+
 class UsuarioResponse(BaseModel):
     id: int
     # A1: la cedula es la identidad primaria y el correo queda opcional.
