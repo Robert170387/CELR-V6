@@ -7,13 +7,15 @@ import logging
 import secrets
 from typing import Dict, FrozenSet
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import RoleChecker, get_current_user
 from app.core.roles import RolUsuario
 from app.core.security import hash_password
 from app.db.session import get_db
+from app.models.flota import Conductor as ConductorModel
 from app.models.flota import PasswordResetToken
 from app.models.flota import RefreshToken as RefreshTokenModel
 from app.models.flota import Usuario as UsuarioModel
@@ -22,6 +24,10 @@ from app.schemas.usuario import (
     AdminResetPasswordResponse,
     DegradarUsuarioRequest,
     DesactivarUsuarioRequest,
+    UsuarioCreateA5,
+    UsuarioCreateResponse,
+    UsuarioListItem,
+    UsuarioUpdateA5,
     UsuarioAccionResponse,
 )
 from app.services.auditoria import obtener_ip, obtener_user_agent
@@ -72,6 +78,56 @@ ROLES_OBJETIVO_POR_EJECUTOR: Dict[str, FrozenSet[str]] = {
 }
 
 router = APIRouter(dependencies=[Depends(RoleChecker(ROLES_RESET_PERMITIDOS))])
+
+
+# ---------------------------------------------------------------------------
+# A5.1 — CRUD de usuarios.
+#
+# `ROLES_OBJETIVO_POR_EJECUTOR` (definido mas abajo, de A3.2) es la UNICA
+# fuente de verdad sobre que puede ver y crear cada rol. A5.1 le agrega su
+# cuarto consumidor: listar. Con reset (A3.2), crear (A5.1) y degradar
+# (A5.2), las cuatro operaciones leen la misma matriz.
+#
+# El listado sigue la convencion del repo: skip/limit con el total en el
+# header X-Total-Count, que es lo que lee `conTotal()` en el frontend
+# (api/index.ts). Devolver {data, total} en el body haria que la UI
+# mostrara 0 elementos con el array lleno.
+
+
+@router.get("/usuarios", response_model=list[UsuarioListItem])
+def listar_usuarios(
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: UsuarioModel = Depends(get_current_user),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    activo: bool | None = None,
+    rol: str | None = None,
+):
+    """A5.1 — Lista usuarios que el ejecutor puede ver segun su matriz.
+
+    El ejecutor SI se ve a si mismo, aunque su propio rol no este en su
+    matriz: un operador listing conductors no deberia desaparecer de "su
+    propia" pantalla de gestion, se leeria como un bug. El resto de la
+    lista sigue gobernada por la matriz.
+    """
+    permitidos = ROLES_OBJETIVO_POR_EJECUTOR.get(current_user.rol, frozenset())
+    if rol is not None and rol not in permitidos:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No puedes listar usuarios con ese rol",
+        )
+    q = db.query(UsuarioModel).filter(
+        (UsuarioModel.rol.in_(permitidos)) | (UsuarioModel.id == current_user.id)
+    )
+    if activo is not None:
+        q = q.filter(UsuarioModel.activo.is_(activo))
+    if rol is not None:
+        q = q.filter(UsuarioModel.rol == rol)
+
+    total = q.count()
+    response.headers["X-Total-Count"] = str(total)
+    return q.order_by(UsuarioModel.id).offset(skip).limit(limit).all()
 
 
 def _resolver_objetivo(db: Session, usuario_id: int, current_user: UsuarioModel) -> UsuarioModel:
@@ -400,4 +456,254 @@ def degradar_usuario(
         rol=usuario.rol,
         era_ultimo_admin=era_ultimo,
         mensaje=f"Rol cambiado de '{rol_anterior}' a '{usuario.rol}'. Quedó auditado.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# A5.1 — Alta, edicion y reactivacion.
+
+
+def _permitidos_del_ejecutor(current_user: UsuarioModel) -> FrozenSet[str]:
+    return ROLES_OBJETIVO_POR_EJECUTOR.get(current_user.rol, frozenset())
+
+
+@router.post("/usuarios", response_model=UsuarioCreateResponse, status_code=status.HTTP_201_CREATED)
+def crear_usuario(
+    payload: UsuarioCreateA5,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: UsuarioModel = Depends(get_current_user),
+):
+    """A5.1 — Crea una cuenta. NO recibe contrasena: el backend genera una
+    temporal y la devuelve una sola vez, y A4 obliga a cambiarla al primer
+    login. Es D4: el admin nunca conoce la contrasena final de la persona.
+    """
+    permitidos = _permitidos_del_ejecutor(current_user)
+    if payload.rol not in permitidos:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"No tienes permisos para crear usuarios con rol "
+                f"'{payload.rol}'. Puedes crear: {sorted(permitidos)}"
+            ),
+        )
+
+    cedula = payload.cedula.strip()
+    if db.query(UsuarioModel).filter(UsuarioModel.cedula == cedula).first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Ya existe un usuario con esa cédula",
+        )
+    if payload.correo and db.query(UsuarioModel).filter(
+        func.lower(UsuarioModel.correo) == payload.correo.lower()
+    ).first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Ya existe un usuario con ese correo",
+        )
+
+    if payload.conductor_id is not None:
+        conductor = db.query(ConductorModel).filter(
+            ConductorModel.id == payload.conductor_id
+        ).first()
+        if conductor is None:
+            raise HTTPException(status_code=404, detail="Conductor no encontrado")
+        # Coherencia persona=cuenta: si el conductor existe, la cedula de la
+        # cuenta DEBE ser la del conductor. Sin esto se podrian crear dos
+        # identidades para la misma persona.
+        if conductor.cedula != cedula:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "La cédula no coincide con la del conductor vinculado "
+                    f"({conductor.cedula})"
+                ),
+            )
+        if db.query(UsuarioModel).filter(
+            UsuarioModel.conductor_id == payload.conductor_id
+        ).first():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="El conductor ya está vinculado a otro usuario",
+            )
+
+    contrasena_temporal = secrets.token_urlsafe(12)
+    usuario = UsuarioModel(
+        cedula=cedula,
+        correo=payload.correo,
+        rol=payload.rol,
+        conductor_id=payload.conductor_id,
+        contrasena_hash=hash_password(contrasena_temporal),
+        # A4 lo bloquea hasta que la cambie.
+        debe_cambiar_contrasena=True,
+        activo=True,
+    )
+    db.add(usuario)
+    db.flush()
+
+    # La contrasena temporal NO va en `detalle` ni en el log (invariante TAUD-10).
+    registrar_auditoria(
+        db,
+        "usuario_creado",
+        actor_id=current_user.id,
+        objetivo_id=usuario.id,
+        ip=obtener_ip(request),
+        user_agent=obtener_user_agent(request),
+        detalle={"rol": payload.rol, "conductor_id": payload.conductor_id},
+    )
+    db.commit()
+
+    return UsuarioCreateResponse(
+        usuario_id=usuario.id,
+        cedula=usuario.cedula,
+        correo=usuario.correo,
+        rol=usuario.rol,
+        contrasena_temporal=contrasena_temporal,
+        mensaje=(
+            "Comuníquela al usuario por un canal seguro. No se mostrará de "
+            "nuevo. Deberá cambiarla al iniciar sesión."
+        ),
+    )
+
+
+@router.put("/usuarios/{usuario_id}", response_model=UsuarioListItem)
+def actualizar_usuario(
+    usuario_id: int,
+    payload: UsuarioUpdateA5,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: UsuarioModel = Depends(get_current_user),
+):
+    """A5.1 — Edita correo, cedula y conductor. NO edita el rol.
+
+    Si el payload trae `rol` (o cualquier campo desconocido) el schema
+    responde 422, no lo ignora: un 200 con el campo descartado hace creer al
+    cliente que el cambio se aplico, y eso se descubre meses despues. El
+    `extra="forbid"` del schema lo cubre. Corregir un rol es desactivar +
+    recrear.
+    """
+    usuario = db.query(UsuarioModel).filter(UsuarioModel.id == usuario_id).first()
+    if usuario is None:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    permitidos = _permitidos_del_ejecutor(current_user)
+    if usuario.rol not in permitidos:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permisos para editar a este usuario",
+        )
+
+    campos = payload.model_dump(exclude_unset=True)
+
+    if "cedula" in campos and campos["cedula"] is not None:
+        nueva = campos["cedula"]
+        if usuario.conductor_id is not None:
+            conductor = db.query(ConductorModel).filter(
+                ConductorModel.id == usuario.conductor_id
+            ).first()
+            if conductor and conductor.cedula != nueva:
+                raise HTTPException(
+                    status_code=422,
+                    detail="La cédula debe coincidir con la del conductor vinculado",
+                )
+        if db.query(UsuarioModel).filter(
+            UsuarioModel.cedula == nueva, UsuarioModel.id != usuario.id
+        ).first():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Ya existe otro usuario con esa cédula"
+            )
+        usuario.cedula = nueva
+
+    if "correo" in campos:
+        nuevo = campos["correo"]
+        if nuevo and db.query(UsuarioModel).filter(
+            func.lower(UsuarioModel.correo) == nuevo.lower(), UsuarioModel.id != usuario.id
+        ).first():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Ya existe otro usuario con ese correo"
+            )
+        usuario.correo = nuevo
+
+    if "conductor_id" in campos:
+        nuevo_conductor_id = campos["conductor_id"]
+        if nuevo_conductor_id is not None:
+            conductor = db.query(ConductorModel).filter(
+                ConductorModel.id == nuevo_conductor_id
+            ).first()
+            if conductor is None:
+                raise HTTPException(status_code=404, detail="Conductor no encontrado")
+            if usuario.cedula and conductor.cedula != usuario.cedula:
+                raise HTTPException(
+                    status_code=422,
+                    detail="La cédula del conductor no coincide con la de la cuenta",
+                )
+            if db.query(UsuarioModel).filter(
+                UsuarioModel.conductor_id == nuevo_conductor_id,
+                UsuarioModel.id != usuario.id,
+            ).first():
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="El conductor ya está vinculado a otro usuario",
+                )
+        usuario.conductor_id = nuevo_conductor_id
+
+    # Solo los NOMBRES de los campos, nunca sus valores: un cambio de correo
+    # pondria la direccion en el rastro, que no es un secreto pero no aporta.
+    registrar_auditoria(
+        db,
+        "usuario_editado",
+        actor_id=current_user.id,
+        objetivo_id=usuario.id,
+        ip=obtener_ip(request),
+        user_agent=obtener_user_agent(request),
+        detalle={"campos": sorted(campos.keys())},
+    )
+    db.commit()
+    db.refresh(usuario)
+    return usuario
+
+
+@router.post(
+    "/usuarios/{usuario_id}/activar",
+    response_model=UsuarioAccionResponse,
+    dependencies=[Depends(RoleChecker(ROLES_ADMIN))],
+)
+def activar_usuario(
+    usuario_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: UsuarioModel = Depends(get_current_user),
+):
+    """A5.1 — Reactiva una cuenta desactivada. Solo admin.
+
+    Sin este endpoint una cuenta desactivada era terminal desde la API: un
+    conductor que se va y vuelve no tenia forma de recuperar el acceso sin
+    tocar la base. Reactivar es mas privilegiado que crear (devuelve acceso
+    a alguien que ya no lo tiene), asi que se reserva a admin igual que
+    desactivar y degradar.
+    """
+    usuario = db.query(UsuarioModel).filter(UsuarioModel.id == usuario_id).first()
+    if usuario is None:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if usuario.activo:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="El usuario ya está activo"
+        )
+
+    usuario.activo = True
+    registrar_auditoria(
+        db,
+        "usuario_activado",
+        actor_id=current_user.id,
+        objetivo_id=usuario.id,
+        ip=obtener_ip(request),
+        user_agent=obtener_user_agent(request),
+    )
+    db.commit()
+    return UsuarioAccionResponse(
+        usuario_id=usuario.id,
+        activo=True,
+        rol=usuario.rol,
+        era_ultimo_admin=False,
+        mensaje="Cuenta reactivada. Quedó auditado.",
     )
