@@ -3,6 +3,9 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
 import { MunicipiosProvider } from '@/context/MunicipiosContext'
 import Login from '@/pages/Login'
+import Recuperar from '@/pages/Recuperar'
+import ResetPassword from '@/pages/ResetPassword'
+import ResetCodigo from '@/pages/ResetCodigo'
 import CambioContrasena from '@/pages/CambioContrasena'
 import Dashboard from '@/pages/Dashboard'
 import Viajes from '@/pages/Viajes'
@@ -49,6 +52,21 @@ const AppRoutes: React.FC = () => {
             <Navigate to="/login" replace />
           )
         }
+      />
+      {/* A5.4 — Rutas PUBLICAS. Van antes del catch-all `/*`, que esta
+          adentro de ProtectedRoute: si no, ProtectedRoute las expulsa a /login
+          y las pantallas publicas nunca se ven sin sesion. */}
+      <Route
+        path="/recuperar"
+        element={isAuthenticated ? <Navigate to="/" replace /> : <Recuperar />}
+      />
+      <Route
+        path="/reset-password"
+        element={isAuthenticated ? <Navigate to="/" replace /> : <ResetPassword />}
+      />
+      <Route
+        path="/reset-codigo"
+        element={isAuthenticated ? <Navigate to="/" replace /> : <ResetCodigo />}
       />
       <Route
         path="/*"

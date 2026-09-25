@@ -30,6 +30,20 @@ export const authAPI = {
   login: (identificador: string, contrasena: string) =>
     apiClient.post('/auth/login', { identificador, contrasena }),
   getMe: () => apiClient.get('/auth/me'),
+  // A5.4 — Recuperacion publica. Los tres devuelven `detail` y el de
+  // forgot-password SIEMPRE es el mismo, exista o no la cuenta: la UI lo
+  // muestra tal cual, sin agregar "revisá tu correo", que seria confirmar si
+  // el identificador existe.
+  forgotPassword: (identificador: string) =>
+    apiClient.post('/auth/forgot-password', { identificador }).then((r) => r.data.detail as string),
+  resetPassword: (token: string, nuevaContrasena: string) =>
+    apiClient
+      .post('/auth/reset-password', { token, nueva_contrasena: nuevaContrasena })
+      .then((r) => r.data.detail as string),
+  resetCodigo: (codigo: string, nuevaContrasena: string) =>
+    apiClient
+      .post('/auth/reset-codigo', { codigo, nueva_contrasena: nuevaContrasena })
+      .then((r) => r.data.detail as string),
   cambioContrasena: (contrasenaActual: string, nuevaContrasena: string) =>
     apiClient.post('/auth/cambio-contrasena', {
       contrasena_actual: contrasenaActual,

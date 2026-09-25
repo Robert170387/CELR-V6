@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { Truck, Fingerprint, Lock, AlertCircle, Loader2 } from 'lucide-react'
 
@@ -97,6 +97,17 @@ const Login: React.FC = () => {
               {loading ? 'Iniciando...' : 'Iniciar Sesión'}
             </button>
           </form>
+
+          {/* A5.4 — Sin este link las pantallas de recuperacion quedan
+              inalcanzables: nada en el login las lleva ahi. */}
+          <div className="mt-4 text-center">
+            <Link
+              to="/recuperar"
+              className="text-sm text-primary-400 hover:text-primary-300 transition-colors"
+            >
+              ¿Olvidaste tu contraseña?
+            </Link>
+          </div>
 
           {/* A2: las credenciales de demo no deben exponerse en produccion
               (Render sirve el build estatico); solo en desarrollo. */}

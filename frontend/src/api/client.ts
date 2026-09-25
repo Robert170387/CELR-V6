@@ -75,8 +75,20 @@ apiClient.interceptors.response.use(
     const original = (error.config || {}) as CelrRequestConfig
     const status = error.response?.status
     const url = original?.url || ''
+    // A5.4: `/auth/reset-password` y `/auth/reset-codigo` devuelven 401
+    // cuando el token o el codigo es invalido, NO cuando la sesion expira.
+    // Sin esta excepcion el 401 dispara un refresh que en una pantalla publica
+    // no puede tener exito (no hay refresh token), cae en el refresh fallido y
+    // el usuario que llega con un enlace vencido es expulsado a /login sin
+    // ver jamas "Token invalido o expirado". Reintentar un 401 de token no
+    // puede funcionar nunca, asi que excluirlo es lo correcto y no una
+    // comodidad. `/auth/forgot-password` no se excluye: solo devuelve 200 o 429.
     const esLlamadaAuth =
-      url.includes('/auth/login') || url.includes('/auth/refresh') || url.includes('/auth/logout')
+      url.includes('/auth/login') ||
+      url.includes('/auth/refresh') ||
+      url.includes('/auth/logout') ||
+      url.includes('/auth/reset-password') ||
+      url.includes('/auth/reset-codigo')
 
     // A4 — Enforcement del primer login. El backend responde 403 con este
     // header mientras el usuario debe cambiar su contrasena. Actua como
