@@ -17,10 +17,20 @@ from app.db.session import get_db
 from app.models.flota import PasswordResetToken
 from app.models.flota import RefreshToken as RefreshTokenModel
 from app.models.flota import Usuario as UsuarioModel
-from app.schemas.usuario import AdminResetCodigoResponse, AdminResetPasswordResponse
+from app.schemas.usuario import (
+    AdminResetCodigoResponse,
+    AdminResetPasswordResponse,
+    DegradarUsuarioRequest,
+    DesactivarUsuarioRequest,
+    UsuarioAccionResponse,
+)
 from app.services.auditoria import obtener_ip, obtener_user_agent
 from app.services.auditoria import registrar as registrar_auditoria
 from app.services.password_reset import generar_token_reset, ttl_por_tipo
+from app.services.usuarios import (
+    es_ultimo_admin_activo,
+    validar_confirmacion_identificador,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +47,11 @@ ROLES_RESET_PERMITIDOS: FrozenSet[str] = frozenset(
         RolUsuario.SUPERVISOR.value,
     }
 )
+
+# A5.2: desactivar o degradar es territorio exclusivo de admin. Es la unica
+# accion que puede dejar el sistema sin gestion de cuentas, asi que no se
+# reparte con los roles de escritura. Derivado del enum, no un literal.
+ROLES_ADMIN: FrozenSet[str] = frozenset({RolUsuario.ADMIN.value})
 
 # Matriz anti-escalada: que rol de OBJETIVO puede resetear cada rol de EJECUTOR.
 # Sin esto, un operador podria resetearle la contrasena a un admin y tomar su
@@ -222,4 +237,167 @@ def reset_codigo_asistido(
             f"Díctele el código al usuario por un canal seguro. No se mostrará de "
             f"nuevo. Caduca en {minutos} minutos."
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# A5.2 — Desactivar y degradar. Territorio exclusivo de admin.
+#
+# Por que NO hay bloqueo duro del ultimo admin: el caso que importa no es el
+# error de tipeo, es la cuenta de admin comprometida. Si no hay forma de
+# desactivarla, el atacante conserva el control y la unica salida es acceso
+# directo a la base de datos. El control es exigir confirmacion humana
+# (identificador tecleado, no un `confirmar=true` que manda un script) y
+# dejar rastro. Decision cerrada antes de implementar.
+
+
+def _resolver_para_accion(db: Session, usuario_id: int, current_user: UsuarioModel):
+    usuario = db.query(UsuarioModel).filter(UsuarioModel.id == usuario_id).first()
+    if usuario is None:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if usuario.id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No puedes desactivar ni degradar tu propia cuenta",
+        )
+    return usuario
+
+
+@router.post(
+    "/usuarios/{usuario_id}/desactivar",
+    response_model=UsuarioAccionResponse,
+    dependencies=[Depends(RoleChecker(ROLES_ADMIN))],
+)
+def desactivar_usuario(
+    usuario_id: int,
+    payload: DesactivarUsuarioRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: UsuarioModel = Depends(get_current_user),
+):
+    """A5.2 — Desactiva una cuenta. Exige confirmacion por identificador.
+
+    Se permite desactivar al ultimo admin a proposito (caso de cuenta
+    comprometida); lo que no se permite es hacerlo sin confirmacion y sin
+    rastro. `era_ultimo_admin` viaja en la respuesta y en la auditoria para
+    que quede visible.
+    """
+    usuario = _resolver_para_accion(db, usuario_id, current_user)
+
+    try:
+        validar_confirmacion_identificador(usuario, payload.confirmacion)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    if not usuario.activo:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El usuario ya está desactivado",
+        )
+
+    era_ultimo = es_ultimo_admin_activo(db, usuario.id)
+    usuario.activo = False
+    # La confirmacion va al rastro: el log dice que hubo confirmacion humana,
+    # no solo que alguien llamo al endpoint.
+    registrar_auditoria(
+        db,
+        "usuario_desactivado",
+        actor_id=current_user.id,
+        objetivo_id=usuario.id,
+        ip=obtener_ip(request),
+        user_agent=obtener_user_agent(request),
+        detalle={"motivo": payload.motivo, "era_ultimo_admin": era_ultimo},
+    )
+    db.commit()
+
+    return UsuarioAccionResponse(
+        usuario_id=usuario.id,
+        activo=False,
+        rol=usuario.rol,
+        era_ultimo_admin=era_ultimo,
+        mensaje=(
+            "Cuenta desactivada. Leíste el identificador del objetivo para confirmar; "
+            "el cambio quedó auditado."
+        ),
+    )
+
+
+@router.post(
+    "/usuarios/{usuario_id}/degradar",
+    response_model=UsuarioAccionResponse,
+    dependencies=[Depends(RoleChecker(ROLES_ADMIN))],
+)
+def degradar_usuario(
+    usuario_id: int,
+    payload: DegradarUsuarioRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: UsuarioModel = Depends(get_current_user),
+):
+    """A5.2 — Cambia el rol de un usuario.
+
+    `nuevo_rol` NO es libre: se valida contra la MISMA matriz que gobierna a
+    quien puede resetear y a quien puede crear (A3.2). Asi degradar no
+    introduce un editor de roles nuevo, reutiliza el permiso de concesion que
+    ya existe. Un admin puede asignar cualquiera de los 6 roles.
+    """
+    usuario = _resolver_para_accion(db, usuario_id, current_user)
+
+    # El rol se valida contra el enum ANTES que la matriz: "rol desconocido" es
+    # un error de tipeo del ejecutor (422), no un problema de permisos (403).
+    if payload.nuevo_rol not in {r.value for r in RolUsuario}:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Rol desconocido: {payload.nuevo_rol}. Validos: {sorted(r.value for r in RolUsuario)}",
+        )
+    # Misma matriz que gobierna resetear y crear: degradar no es un editor de
+    # roles nuevo, es el permiso de concesion que ya existe. Hoy solo admin
+    # entra a este endpoint y admin puede conceder los 6, asi que el 403 es
+    # defensivo: si mañana se abre el endpoint a otro rol, la matriz ya limita.
+    permitidos = ROLES_OBJETIVO_POR_EJECUTOR.get(current_user.rol, frozenset())
+    if payload.nuevo_rol not in permitidos:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"No tienes permisos para asignar el rol '{payload.nuevo_rol}'. "
+                "Los roles que puedes conceder son los mismos que puedes resetear."
+            ),
+        )
+    if payload.nuevo_rol == usuario.rol:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El usuario ya tiene ese rol",
+        )
+
+    try:
+        validar_confirmacion_identificador(usuario, payload.confirmacion)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    era_ultimo = es_ultimo_admin_activo(db, usuario.id)
+    rol_anterior = usuario.rol
+    usuario.rol = payload.nuevo_rol
+
+    registrar_auditoria(
+        db,
+        "usuario_degradado",
+        actor_id=current_user.id,
+        objetivo_id=usuario.id,
+        ip=obtener_ip(request),
+        user_agent=obtener_user_agent(request),
+        detalle={
+            "motivo": payload.motivo,
+            "rol_anterior": rol_anterior,
+            "rol_nuevo": payload.nuevo_rol,
+            "era_ultimo_admin": era_ultimo,
+        },
+    )
+    db.commit()
+
+    return UsuarioAccionResponse(
+        usuario_id=usuario.id,
+        activo=usuario.activo,
+        rol=usuario.rol,
+        era_ultimo_admin=era_ultimo,
+        mensaje=f"Rol cambiado de '{rol_anterior}' a '{usuario.rol}'. Quedó auditado.",
     )

@@ -69,6 +69,39 @@ class AdminResetCodigoResponse(BaseModel):
     mensaje: str
 
 
+class UsuarioAccionResponse(BaseModel):
+    """A5.2 — Respuesta de desactivar/degradar un usuario.
+
+    `era_ultimo_admin` viaja en la respuesta (y en la auditoria) para que el
+    operador sepa en el momento que acaba de dejar el sistema con un unico
+    admin. No bloquea: la decision fue auditar, no impedir.
+    """
+
+    usuario_id: int
+    activo: bool
+    rol: str
+    era_ultimo_admin: bool
+    mensaje: str
+
+
+class DesactivarUsuarioRequest(BaseModel):
+    """A5.2 — Desactivar es irreversible a efectos practicos: la cuenta queda
+    inactiva y no puede iniciar sesion."""
+
+    confirmacion: str = Field(..., min_length=1, max_length=150)
+    motivo: Optional[str] = Field(default=None, max_length=500)
+
+
+class DegradarUsuarioRequest(BaseModel):
+    """A5.2 — Degradar cambia el rol. `nuevo_rol` se valida contra la matriz
+    de roles que el ejecutor puede conceder, asi que no es un editor de roles
+    libre: es el mismo permiso que crear."""
+
+    confirmacion: str = Field(..., min_length=1, max_length=150)
+    nuevo_rol: str = Field(..., min_length=1, max_length=20)
+    motivo: Optional[str] = Field(default=None, max_length=500)
+
+
 class UsuarioResponse(BaseModel):
     id: int
     # A1: la cedula es la identidad primaria y el correo queda opcional.
