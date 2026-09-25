@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -6,6 +8,26 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.db.session import get_db
 from app.api.v1.api import api_router
+
+# Sin esto, el root logger queda en WARNING (default de Python) y NINGUN
+# logger.info del proyecto se emite. LogEmailBackend imprime el enlace de
+# recuperacion a proposito para que el flujo se pueda probar en local, y ese
+# log era invisible: /recuperar no producia nada que leer. Es el mismo
+# patron de fallo silencioso de A5.3, con el logger presente pero nunca
+# configurado.
+#
+# En produccion baja a WARNING a proposito. Hoy ningun logger.info filtra un
+# secreto (los de usuarios.py solo traen usuario_id y rol, y la traza de
+# auditoria va a la tabla, no al log), asi que INFO seria inofensivo. El
+# guard existe para que un logger.info futuro con una credencial dentro no
+# empiece a filtrar a produccion sin que nadie lo note.
+# ENVIRONMENT lo pone render.yaml (production) y el default de config.py es
+# development, asi que el bare metal y el docker local quedan en INFO.
+logging.basicConfig(
+    level=logging.INFO if settings.ENVIRONMENT != "production" else logging.WARNING,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 
 app = FastAPI(
     title="CELR v6 API",
