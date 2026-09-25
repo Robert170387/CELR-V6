@@ -20,7 +20,11 @@ from app.schemas.liquidacion import (
     CierreMensualCreate,
     CierreMensualResponse,
 )
-from app.services.operaciones import bloqueos_cierre_odt, consolidar_compensado
+from app.services.operaciones import (
+    _porcentaje_comision,
+    bloqueos_cierre_odt,
+    consolidar_compensado,
+)
 
 router = APIRouter(dependencies=[Depends(RoleChecker(ROLES_LIQUIDACIONES))])
 
@@ -87,7 +91,7 @@ def _calcular_servidor(db: Session, viaje: ViajeODT) -> dict:
     )
 
     flete_neto = viaje.flete_neto or Decimal(0)
-    porcentaje = _porcentaje_comision_default(db, conductor_id)
+    porcentaje = _porcentaje_comision(db, viaje)
     comision_flete = (flete_neto * porcentaje / Decimal(100)).quantize(Decimal("0.01"))
     saldo_neto = flete_neto - gastos_empresa - anticipos - comision_flete
 

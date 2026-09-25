@@ -380,6 +380,65 @@ def test_cerrar_liquidacion(db: Session, viaje_id: int, cond_id: int, veh_id: in
     print(f"  [OK] Test cerrar_liquidacion PASADO")
 
 
+def test_comision_override_calcular_servidor(
+    db: Session,
+    veh_id: int,
+    cond_id: int,
+    viajes_creados: list,
+) -> None:
+    """TL-OV1..TL-OV5: la liquidación respeta la precedencia de comisión de la ODT."""
+    from app.api.v1.endpoints.liquidaciones import _calcular_servidor
+
+    conductor = db.query(Conductor).filter(Conductor.id == cond_id).first()
+    assert conductor is not None
+    default_original = conductor.porcentaje_comision_default
+
+    def crear_odt(porcentaje: Decimal | None) -> ViajeODT:
+        viaje = ViajeODT(
+            vehiculo_id=veh_id,
+            conductor_id=cond_id,
+            origen="Bogota",
+            destino="Cali",
+            fecha_salida=date(2026, 9, 18),
+            valor_flete_manifiesto=Decimal("1000000.00"),
+            retefuente_porcentaje=Decimal("10.00"),
+            reteica_porcentaje=Decimal("5.00"),
+            porcentaje_comision=porcentaje,
+            estado="en_curso",
+        )
+        db.add(viaje)
+        db.flush()
+        recalcular_viaje(db, viaje)
+        db.commit()
+        db.refresh(viaje)
+        viajes_creados.append(viaje)
+        return viaje
+
+    def verificar(etiqueta: str, porcentaje_odt: Decimal | None, default_conductor: Decimal | None, esperado_pct: Decimal) -> None:
+        conductor.porcentaje_comision_default = default_conductor
+        db.commit()
+        viaje = crear_odt(porcentaje_odt)
+        resultado = _calcular_servidor(db, viaje)
+        esperado_comision = (Decimal("850000.00") * esperado_pct / Decimal("100")).quantize(Decimal("0.01"))
+        assert resultado["porcentaje_comision"] == esperado_pct, (
+            f"{etiqueta}: porcentaje inesperado {resultado['porcentaje_comision']} != {esperado_pct}"
+        )
+        assert resultado["comision_flete"] == esperado_comision, (
+            f"{etiqueta}: comisión inesperada {resultado['comision_flete']} != {esperado_comision}"
+        )
+        print(f"  [OK] {etiqueta}: pct={resultado['porcentaje_comision']} comision={resultado['comision_flete']}")
+
+    try:
+        verificar("TL-OV1", Decimal("15.00"), Decimal("10.00"), Decimal("15.00"))
+        verificar("TL-OV2", None, Decimal("10.00"), Decimal("10.00"))
+        verificar("TL-OV3", Decimal("0.00"), Decimal("10.00"), Decimal("0.00"))
+        verificar("TL-OV4", Decimal("15.00"), None, Decimal("15.00"))
+        verificar("TL-OV5", None, None, Decimal("10.00"))
+    finally:
+        conductor.porcentaje_comision_default = default_original
+        db.commit()
+
+
 def main():
     print("Iniciando prueba de liquidaciones CELR v6...")
     db = SessionLocal()
@@ -397,6 +456,7 @@ def main():
         create_test_gastos(db, viaje.id, veh_id, cond_id)
         create_test_ingreso(db, viaje.id, veh_id)
         test_calcular_liquidacion(db, viaje.id)
+        test_comision_override_calcular_servidor(db, veh_id, cond_id, viajes_creados)
         viaje2 = create_test_viaje_extra(db, veh_id, cond_id)
         viajes_creados.append(viaje2)
         test_cerrar_comision_incorrecta(db, viaje2, cond_id, veh_id, admin)
