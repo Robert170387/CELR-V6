@@ -112,11 +112,11 @@ const AppRoutes: React.FC = () => {
 
 const App: React.FC = () => (
   <BrowserRouter>
-    <MunicipiosProvider>
-      <AuthProvider>
+    <AuthProvider>
+      <MunicipiosProvider>
         <AppRoutes />
-      </AuthProvider>
-    </MunicipiosProvider>
+      </MunicipiosProvider>
+    </AuthProvider>
   </BrowserRouter>
 )
 
