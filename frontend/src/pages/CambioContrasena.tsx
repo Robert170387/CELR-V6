@@ -18,8 +18,8 @@ const CambioContrasena: React.FC = () => {
     e.preventDefault()
     setError('')
     setSuccess('')
-    if (nueva.length < 6) {
-      setError('La nueva contraseña debe tener al menos 6 caracteres')
+    if (nueva.length < 8) {
+      setError('La nueva contraseña debe tener al menos 8 caracteres')
       return
     }
     if (nueva !== confirmacion) {
@@ -88,7 +88,7 @@ const CambioContrasena: React.FC = () => {
                 value={nueva}
                 onChange={(e) => setNueva(e.target.value)}
                 className="input-truck"
-                placeholder="Mínimo 6 caracteres"
+                placeholder="Mínimo 8 caracteres"
                 required
               />
             </div>

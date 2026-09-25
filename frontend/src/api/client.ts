@@ -78,6 +78,22 @@ apiClient.interceptors.response.use(
     const esLlamadaAuth =
       url.includes('/auth/login') || url.includes('/auth/refresh') || url.includes('/auth/logout')
 
+    // A4 — Enforcement del primer login. El backend responde 403 con este
+    // header mientras el usuario debe cambiar su contrasena. Actua como
+    // backstop del guard de ruta: durante la hidratacion (user=null hasta
+    // que /auth/me resuelve) el guard todavia no bloquea, pero el backend
+    // ya responde 403 y estas llamadas son las que disparan la redireccion.
+    // El header evita depender del texto del mensaje.
+    if (status === 403 && error.response?.headers?.['x-celr-requiere-cambio'] === 'true') {
+      // startsWith y no includes: una query string que contenga el path no
+      // debe disparar la redireccion. Si ya estamos en la pantalla de cambio,
+      // no recargar (seria un loop: 403 -> redirect -> recarga -> 403).
+      if (!window.location.pathname.startsWith('/cambiar-contrasena')) {
+        window.location.href = '/cambiar-contrasena'
+      }
+      return Promise.reject(error)
+    }
+
     if (status === 401 && original && !original._retried && !esLlamadaAuth) {
       original._retried = true
       const newToken = await tryRefresh()
