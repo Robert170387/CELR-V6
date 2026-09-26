@@ -162,8 +162,12 @@ export const liquidacionesAPI = {
 export interface BloqueosCierre {
   viaje_id: number
   numero_odt: string
+  /** true solo si `bloqueos` esta vacia. `informativos` no lo afecta (B6). */
   cercable: boolean
+  /** Impide el cierre. */
   bloqueos: string[]
+  /** Se informa, pero no impide el cierre. */
+  informativos: string[]
 }
 
 export interface FlypassListItem {

@@ -120,14 +120,27 @@ def validar_manifiesto_unico(
 # ---------------------------------------------------------------------------
 # Regla 4 — cierre operativo de la ODT
 # ---------------------------------------------------------------------------
-def bloqueos_cierre_odt(db: Session, viaje: ViajeODT) -> list[str]:
-    """Devuelve la lista de bloqueos para marcar una ODT como finalizada.
+def bloqueos_cierre_odt(db: Session, viaje: ViajeODT) -> dict:
+    """Clasifica lo que impide cerrar una ODT y lo que solo informa.
 
-    Vacía = la ODT puede cerrarse. Regla 4:
-      * saldo_flete_esperado cubierto por ingresos recibidos/conciliados;
-      * sin peajes Flypass pendientes de legalizar en la ruta.
+    La regla 4 tiene dos componentes con efectos distintos:
+
+      * ``bloqueos`` — impiden el cierre. Hoy: peajes Flypass pendientes de
+        legalizar en la ruta.
+      * ``informativos`` — no impiden el cierre, se muestran. Hoy: saldo flete
+        esperado no cubierto por ingresos recibidos/conciliados.
+
+    La distinción vive ACA y no en el consumidor. Antes cada endpoint la
+    recalculaba por su cuenta: el GET contaba el saldo como bloqueo mientras
+    el POST solo miraba los peajes. Dos capas, afirmaciones opuestas sobre el
+    mismo viaje, en el mismo momento. B6 ya decidio que el saldo es
+    informativo; que lo sea no puede depender de quien pregunta.
+
+    Devuelve ``{"bloqueos": [...], "informativos": [...]}``. Para consumirse
+    sin ambiguedad: ``cercable = not resultado["bloqueos"]``.
     """
     bloqueos: list[str] = []
+    informativos: list[str] = []
     if viaje.saldo_flete_esperado is None or viaje.gastos_totales_viaje is None:
         recalcular_viaje(db, viaje)  # snapshots al dia antes de evaluar
 
@@ -144,7 +157,7 @@ def bloqueos_cierre_odt(db: Session, viaje: ViajeODT) -> list[str]:
             or CERO
         )
         if recaudado < saldo:
-            bloqueos.append(
+            informativos.append(
                 f"Saldo flete esperado sin cubrir: faltan {(saldo - recaudado):,.2f}"
             )
 
@@ -152,7 +165,7 @@ def bloqueos_cierre_odt(db: Session, viaje: ViajeODT) -> list[str]:
     if pendientes:
         bloqueos.append(f"{pendientes} peaje(s) Flypass pendientes de legalizar en la ruta")
 
-    return bloqueos
+    return {"bloqueos": bloqueos, "informativos": informativos}
 
 
 # ---------------------------------------------------------------------------

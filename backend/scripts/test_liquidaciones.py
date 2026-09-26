@@ -222,11 +222,15 @@ def test_flypass_bloquea_cierre_individual(
     assert response.status_code == 409, response.text
     detail = response.json()["detail"]
     assert detail["cercable"] is False
-    assert any(
-        "Flypass" in mensaje
-        for item in detail["bloqueos"]
-        for mensaje in item["bloqueos"]
-    )
+    # Estructura, no texto. Antes esto buscaba la palabra "Flypass" dentro del
+    # mensaje: el mismo acoplamiento por cadena que se elimino del endpoint. Si
+    # el mensaje se reescribia, el 409 dejaba de bloquear y este assert se
+    # relajaba solo, en el mismo commit. Ahora se afirma que el viaje esta en la
+    # lista de bloqueos y que trae al menos uno.
+    assert detail["bloqueos"], "el 409 debe listar el viaje bloqueado"
+    bloqueado = detail["bloqueos"][0]
+    assert bloqueado["viaje_id"] == viaje.id
+    assert bloqueado["bloqueos"], "un viaje bloqueado debe traer al menos un bloqueo"
     db.refresh(viaje)
     assert viaje.estado == "en_curso"
     assert not db.query(LiquidacionConductor).filter(
@@ -293,11 +297,11 @@ def test_cierre_mensual_bloqueado_por_flypass(
     assert response.status_code == 409, response.text
     detail = response.json()["detail"]
     assert detail["cercable"] is False
-    assert any(
-        "Flypass" in mensaje
-        for item in detail["bloqueos"]
-        for mensaje in item["bloqueos"]
-    )
+    # Estructura, no texto — mismo criterio que T1.
+    assert detail["bloqueos"], "el 409 debe listar el viaje bloqueado"
+    bloqueado = detail["bloqueos"][0]
+    assert bloqueado["viaje_id"] == viaje.id
+    assert bloqueado["bloqueos"], "un viaje bloqueado debe traer al menos un bloqueo"
     db.refresh(viaje)
     assert viaje.estado == "en_curso"
     assert not db.query(LiquidacionConductor).filter(
@@ -322,6 +326,118 @@ def test_cierre_mensual_limpio(
     )
     assert response.status_code == 200, response.text
     print("  cierre mensual limpio: OK")
+
+
+# ---------------------------------------------------------------------------
+# R1-pre-2 — el test de cruce que faltaba
+# ---------------------------------------------------------------------------
+def _get_bloqueos(client, headers: dict, viaje: ViajeODT) -> dict:
+    response = client.get(
+        f"/api/v1/viajes/{viaje.id}/bloqueos-cierre", headers=headers
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _cerrar_individual(client, headers: dict, viaje: ViajeODT, periodo: str):
+    # Dia 28 a proposito: el 29/30/31 no existe en febrero y el payload se
+    # valida como fecha real.
+    return client.post(
+        f"/api/v1/liquidaciones/cerrar/{viaje.id}",
+        json=payload_cierre_individual(
+            viaje.id, viaje.conductor_id, viaje.vehiculo_id,
+            f"{periodo}-01", f"{periodo}-28",
+        ),
+        headers=headers,
+    )
+
+
+def test_estructura_saldo_es_informativo(
+    db: Session, veh_id: int, cond_id: int, viajes_creados: list, client, headers: dict
+) -> None:
+    """TC-2: el saldo sin cubrir es informativo, nunca bloqueo (B6)."""
+    print("\n=== TC-2: saldo sin cubrir -> informativos, no bloqueos ===")
+    viaje = create_test_viaje_extra(db, veh_id, cond_id, date(2027, 1, 5))
+    viajes_creados.append(viaje)
+
+    body = _get_bloqueos(client, headers, viaje)
+    assert body["viaje_id"] == viaje.id
+    assert body["numero_odt"] == viaje.numero_odt
+    assert body["bloqueos"] == [], (
+        f"el saldo no debe bloquear; bloqueos={body['bloqueos']}"
+    )
+    assert body["informativos"], "el saldo sin cubrir debe informarse"
+    assert body["cercable"] is True, "sin bloqueos, la ODT es cercable"
+    print(f"  bloqueos=[] informativos={body['informativos']}: OK")
+
+
+def test_cierre_consistente_get_post(
+    db: Session,
+    veh_id: int,
+    cond_id: int,
+    viajes_creados: list,
+    flypass_creados: list,
+    client,
+    headers: dict,
+) -> None:
+    """TC-1: GET y POST deben afirmar lo mismo sobre el mismo viaje.
+
+    Es el test que faltaba. El GET de bloqueos no tenía ninguna cobertura —
+    ni suite ni E2E — así que sus dos capas se contradijeron durante meses sin
+    que nada lo notara: el GET decia "no cercable" por el saldo y el POST
+    cerraba igual. Cada capa era correcta según su propio código; lo que faltaba
+    era el cruce.
+    """
+    print("\n=== TC-1: GET y POST coinciden sobre el mismo viaje ===")
+
+    # (a) solo saldo sin cubrir: es informativo, el cierre procede igual.
+    v_a = create_test_viaje_extra(db, veh_id, cond_id, date(2027, 2, 5))
+    viajes_creados.append(v_a)
+    get_a = _get_bloqueos(client, headers, v_a)
+    post_a = _cerrar_individual(client, headers, v_a, "2027-02")
+    assert post_a.status_code == 200, post_a.text
+    assert get_a["cercable"] is True, (
+        f"GET y POST se contradicen: GET cercable={get_a['cercable']}, "
+        f"pero el POST cerro con {post_a.status_code}"
+    )
+    print("  (a) solo saldo -> GET cercable=True, POST 200: coinciden")
+
+    # (b) peaje Flypass pendiente: bloquea en las dos capas.
+    v_b = create_test_viaje_extra(db, veh_id, cond_id, date(2027, 3, 5))
+    viajes_creados.append(v_b)
+    flypass_creados.append(crear_flypass(db, v_b))
+    get_b = _get_bloqueos(client, headers, v_b)
+    post_b = _cerrar_individual(client, headers, v_b, "2027-03")
+    assert post_b.status_code == 409, post_b.text
+    assert get_b["cercable"] is False, (
+        f"GET y POST se contradicen: GET cercable={get_b['cercable']}, "
+        f"pero el POST respondio {post_b.status_code}"
+    )
+    print("  (b) Flypass pendiente -> GET cercable=False, POST 409: coinciden")
+
+    # (c) saldo sin cubrir + peaje pendiente: bloquea, y el saldo se informa.
+    v_c = create_test_viaje_extra(db, veh_id, cond_id, date(2027, 4, 5))
+    viajes_creados.append(v_c)
+    flypass_creados.append(crear_flypass(db, v_c))
+    get_c = _get_bloqueos(client, headers, v_c)
+    post_c = _cerrar_individual(client, headers, v_c, "2027-04")
+    assert post_c.status_code == 409, post_c.text
+    assert get_c["cercable"] is False, (
+        f"GET y POST se contradicen: GET cercable={get_c['cercable']}, "
+        f"pero el POST respondio {post_c.status_code}"
+    )
+    assert get_c["bloqueos"] and get_c["informativos"], (
+        "con peaje pendiente y saldo sin cubrir deben venir ambas listas"
+    )
+    print("  (c) saldo + Flypass -> GET cercable=False, POST 409: coinciden")
+
+    # TC-3: el 409 también expone los informativos del viaje bloqueado.
+    bloqueado = post_c.json()["detail"]["bloqueos"][0]
+    assert bloqueado["viaje_id"] == v_c.id
+    assert bloqueado["informativos"], (
+        "el 409 debe informar el saldo del viaje que bloquea, no solo el bloqueo"
+    )
+    print("  (TC-3) 409 con informativos adjuntos: OK")
 
 
 
@@ -491,6 +607,14 @@ def main():
         viaje_t5 = create_test_viaje_extra(db, veh_id, cond_id, date(2026, 12, 5))
         viajes_creados.append(viaje_t5)
         test_cierre_mensual_limpio(db, viaje_t5, client, headers)
+
+        # R1-pre-2: estructura y, sobre todo, el cruce GET/POST.
+        test_estructura_saldo_es_informativo(
+            db, veh_id, cond_id, viajes_creados, client, headers
+        )
+        test_cierre_consistente_get_post(
+            db, veh_id, cond_id, viajes_creados, flypass_creados, client, headers
+        )
         print("\n[TODOS LOS TESTS DE LIQUIDACIONES PASARON]")
     except Exception as e:
         print(f"\n[ERROR EN TESTS]: {e}")

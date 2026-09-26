@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { Package, Truck, Plus, Loader2, AlertCircle, CheckCircle2, XCircle, Pencil, Trash2, X, Calculator, ShieldAlert } from 'lucide-react'
+import { Package, Truck, Plus, Loader2, AlertCircle, CheckCircle2, XCircle, Pencil, Trash2, X, Calculator, ShieldAlert, Info, TriangleAlert } from 'lucide-react'
 import { viajesAPI, vehiculosAPI, conductoresAPI, gastosAPI, proveedoresAPI } from '@/api'
 import Pagination from '@/components/Pagination'
 import SelectorCiudad from '@/components/SelectorCiudad'
@@ -202,7 +202,7 @@ const Viajes: React.FC = () => {
   const [eliminarError, setEliminarError] = useState('')
   const [eliminando, setEliminando] = useState(false)
 
-  const [bloqueosInfo, setBloqueosInfo] = useState<{ numero_odt: string; cercable: boolean; bloqueos: string[] } | null>(null)
+  const [bloqueosInfo, setBloqueosInfo] = useState<{ numero_odt: string; cercable: boolean; bloqueos: string[]; informativos: string[] } | null>(null)
   const [cargandoBloqueos, setCargandoBloqueos] = useState<number | null>(null)
 
   const cargarDatos = async () => {
@@ -441,7 +441,7 @@ const Viajes: React.FC = () => {
     setError('')
     try {
       const res = await viajesAPI.bloqueosCierre(viaje.id)
-      setBloqueosInfo({ numero_odt: res.numero_odt, cercable: res.cercable, bloqueos: res.bloqueos })
+      setBloqueosInfo({ numero_odt: res.numero_odt, cercable: res.cercable, bloqueos: res.bloqueos, informativos: res.informativos })
     } catch (err) {
       setError(extraerMensajeError(err))
     } finally {
@@ -1222,7 +1222,7 @@ const FilaCalculada: React.FC<{ label: string; valor: number; tono?: string }> =
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <div className="card-truck w-full max-w-md">
             <div className="flex items-start gap-3 mb-4">
-              <div className={`p-2 rounded-full ${bloqueosInfo.cercable ? 'bg-green-500/20 text-green-500' : 'bg-amber-500/20 text-amber-500'}`}>
+              <div className={`p-2 rounded-full ${bloqueosInfo.cercable ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'}`}>
                 <ShieldAlert size={22} />
               </div>
               <div className="flex-1">
@@ -1240,23 +1240,51 @@ const FilaCalculada: React.FC<{ label: string; valor: number; tono?: string }> =
               </button>
             </div>
 
-            {bloqueosInfo.cercable ? (
-              <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/30 text-green-500 px-4 py-3 rounded-lg">
-                <CheckCircle2 size={18} />
-                <span>La ODT no presenta bloqueos y puede finalizarse.</span>
+            {!bloqueosInfo.cercable ? (
+              <div className="mb-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-red-400 mb-2">
+                  Impide el cierre
+                </p>
+                <ul className="space-y-2">
+                  {bloqueosInfo.bloqueos.map((b, idx) => (
+                    <li
+                      key={idx}
+                      className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-lg text-sm"
+                    >
+                      <TriangleAlert size={16} className="mt-0.5 shrink-0" />
+                      <span>{b}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             ) : (
-              <ul className="space-y-2">
-                {bloqueosInfo.bloqueos.map((b, idx) => (
-                  <li
-                    key={idx}
-                    className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-500 px-4 py-3 rounded-lg text-sm"
-                  >
-                    <AlertCircle size={16} className="mt-0.5 shrink-0" />
-                    <span>{b}</span>
-                  </li>
-                ))}
-              </ul>
+              <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/30 text-green-500 px-4 py-3 rounded-lg">
+                <CheckCircle2 size={18} />
+                <span>
+                  {bloqueosInfo.informativos.length > 0
+                    ? 'No hay bloqueos. Hay información adicional abajo.'
+                    : 'La ODT no presenta bloqueos y puede finalizarse.'}
+                </span>
+              </div>
+            )}
+
+            {bloqueosInfo.informativos.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-sky-400 mb-2">
+                  Informativo — no impide el cierre
+                </p>
+                <ul className="space-y-2">
+                  {bloqueosInfo.informativos.map((b, idx) => (
+                    <li
+                      key={idx}
+                      className="flex items-start gap-2 bg-sky-500/10 border border-sky-500/30 text-sky-400 px-4 py-3 rounded-lg text-sm"
+                    >
+                      <Info size={16} className="mt-0.5 shrink-0" />
+                      <span>{b}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
 
             <div className="flex items-center justify-end gap-2 mt-4">

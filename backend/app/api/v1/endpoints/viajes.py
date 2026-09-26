@@ -84,10 +84,11 @@ def obtener_bloqueos_cierre_odt(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    """Regla 4 (FASE A2): bloqueos para finalizar la ODT.
+    """Regla 4 (FASE A2): estado de cierre de la ODT.
 
-    Devuelve los impedimentos vigentes (saldo flete esperado sin cubrir y
-    peajes Flypass pendientes de legalizar). Lista vacia = la ODT es cercable.
+    ``bloqueos`` impide el cierre; ``informativos`` solo se informa. El GET y el
+    POST de cierre usan la misma clasificacion, asi que este ``cercable`` y el
+    409 del POST no pueden afirmar cosas distintas sobre el mismo viaje.
     """
     db_viaje = (
         db.query(ViajeODT)
@@ -96,12 +97,13 @@ def obtener_bloqueos_cierre_odt(
     )
     if not db_viaje:
         raise HTTPException(status_code=404, detail="Viaje no encontrado")
-    bloqueos = bloqueos_cierre_odt(db, db_viaje)
+    estado = bloqueos_cierre_odt(db, db_viaje)
     return {
         "viaje_id": db_viaje.id,
         "numero_odt": db_viaje.numero_odt,
-        "cercable": len(bloqueos) == 0,
-        "bloqueos": bloqueos,
+        "cercable": not estado["bloqueos"],
+        "bloqueos": estado["bloqueos"],
+        "informativos": estado["informativos"],
     }
 
 

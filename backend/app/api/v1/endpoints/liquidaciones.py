@@ -114,21 +114,27 @@ def _calcular_servidor(db: Session, viaje: ViajeODT) -> dict:
 
 
 def _detalle_bloqueos_cierre(db, viajes: list[ViajeODT]) -> dict:
-    """Arma el 409 cuando la regla 4 tiene peajes Flypass pendientes.
+    """Arma el 409 cuando un viaje de la lista no puede cerrarse.
 
-    ``bloqueos_cierre_odt`` también devuelve el saldo sin cubrir. Este fix
-    hace obligatorio solo el componente Flypass; el saldo conserva el
-    comportamiento previo y sigue disponible mediante el GET de bloqueos.
+    Usa la clasificacion de ``bloqueos_cierre_odt`` directamente. Antes este
+    helper reimplementaba la regla buscando la palabra "Flypass" dentro del
+    texto del mensaje: acoplar una regla de negocio a una cadena de
+    presentacion. Reescribir el mensaje desligaba el 409 en silencio, y los
+    tests que buscaban la misma palabra se relajaban con el.
+
+    Solo ``bloqueos`` bloquea (B6). Los informativos viajan en la respuesta
+    para que el cliente vea lo mismo que el GET.
     """
     bloqueos = []
     for viaje in viajes:
-        mensajes = bloqueos_cierre_odt(db, viaje)
-        if any("Flypass" in mensaje for mensaje in mensajes):
+        estado = bloqueos_cierre_odt(db, viaje)
+        if estado["bloqueos"]:
             bloqueos.append(
                 {
                     "viaje_id": viaje.id,
                     "numero_odt": viaje.numero_odt,
-                    "bloqueos": mensajes,
+                    "bloqueos": estado["bloqueos"],
+                    "informativos": estado["informativos"],
                 }
             )
     return {"cercable": not bloqueos, "bloqueos": bloqueos}
