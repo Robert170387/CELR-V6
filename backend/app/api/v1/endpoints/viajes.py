@@ -9,10 +9,11 @@ from app.core.roles import ROLES_LIQUIDACIONES
 from app.db.session import get_db
 from app.models.flota import Usuario
 from app.models.operaciones import ViajeODT
-from app.schemas.viaje import ViajeCreate, ViajeUpdate, ViajeResponse
+from app.schemas.viaje import ViajeCreate, ViajeUpdate, ViajeResponse, ViajeResumenResponse
 from app.services.operaciones import bloqueos_cierre_odt, recalcular_viaje, validar_manifiesto_unico
 from app.services.secuencias import siguiente_consecutivo
 from app.services.ubicacion import autocompletar_municipio_texto, autocompletar_municipio_orm
+from app.services.viajes import resumen_viaje
 
 router = APIRouter()
 
@@ -105,6 +106,28 @@ def obtener_bloqueos_cierre_odt(
         "bloqueos": estado["bloqueos"],
         "informativos": estado["informativos"],
     }
+
+
+@router.get("/viajes/{viaje_id}/resumen", response_model=ViajeResumenResponse)
+def obtener_resumen_viaje(
+    viaje_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """R1: resumen completo de la ODT en una sola llamada.
+
+    Solo lectura: lee los snapshots persistidos y no recalcula. Distingue
+    "calculado en 0" de "nunca calculado" (``snapshots_completos``), y las
+    listas 1:N declaran su truncado en vez de cortar en silencio.
+    """
+    db_viaje = (
+        db.query(ViajeODT)
+        .filter(ViajeODT.id == viaje_id, ViajeODT.eliminado_en.is_(None))
+        .first()
+    )
+    if not db_viaje:
+        raise HTTPException(status_code=404, detail="Viaje no encontrado")
+    return resumen_viaje(db, db_viaje)
 
 
 @router.put(

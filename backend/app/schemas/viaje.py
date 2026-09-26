@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, validator
-from typing import Optional
+from typing import List, Optional
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -128,3 +128,81 @@ class ViajeResponse(BaseModel):
 
     class ConfigDict:
         from_attributes = True
+
+
+# --- R1: resumen completo de la ODT (GET /viajes/{id}/resumen) -------------
+# Las tres listas repiten la misma envoltura y se diferencian solo en el tipo
+# del item. Pydantic v1 no tiene genéricas discriminated, asi que son tres
+# clases explicitas en vez de un ``Any``.
+
+class GastoResumenItem(BaseModel):
+    id: int
+    categoria: str
+    descripcion: Optional[str]
+    fecha_gasto: date
+    valor_total: Decimal
+    responsable_pago: str
+    asumido_por: str
+    estado_pago: str
+
+    class ConfigDict:
+        from_attributes = True
+
+
+class IngresoResumenItem(BaseModel):
+    id: int
+    tipo_ingreso: str
+    descripcion: Optional[str]
+    fecha_ingreso: date
+    valor: Decimal
+    estado_pago: str
+
+    class ConfigDict:
+        from_attributes = True
+
+
+class PeajeResumenItem(BaseModel):
+    id: int
+    num_transaccion_flypass: str
+    nombre_peaje: Optional[str]
+    ciudad_peaje: Optional[str]
+    fecha_transaccion: datetime
+    valor: Decimal
+    # Derivado: un peaje sin gasto cruzado sigue sin legalizar (regla de B6).
+    legalizado: bool
+
+    class ConfigDict:
+        from_attributes = True
+
+
+class ResumenGastos(BaseModel):
+    items: List[GastoResumenItem]
+    total: int
+    truncado: bool
+
+
+class ResumenIngresos(BaseModel):
+    items: List[IngresoResumenItem]
+    total: int
+    truncado: bool
+
+
+class ResumenPeajes(BaseModel):
+    items: List[PeajeResumenItem]
+    total: int
+    truncado: bool
+
+
+class ViajeResumenResponse(BaseModel):
+    viaje_id: int
+    numero_odt: str
+    # false = algun snapshot nunca fue calculado. El resumen NO rellena con 0.
+    snapshots_completos: bool
+    # None cuando falta retefuente_valor o reteica_valor. Propagar, no inventar.
+    total_deducibles: Optional[Decimal]
+    viaje: ViajeResponse
+    gastos: ResumenGastos
+    ingresos: ResumenIngresos
+    peajes: ResumenPeajes
+    bloqueos: List[str]
+    informativos: List[str]
