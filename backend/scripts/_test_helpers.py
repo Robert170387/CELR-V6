@@ -20,7 +20,13 @@ def capturar_token_ids(db: Session, correo: str) -> set[int]:
 
 
 def limpiar_tokens_nuevos(db: Session, correo: str, antes: set[int]) -> int:
-    """Borra refresh_tokens creados después del snapshot y devuelve la cantidad."""
+    """Borra refresh_tokens creados después del snapshot y devuelve la cantidad.
+
+    ESTE HELPER NO COMMITEA, por diseño (commit ``ac2e9ba``, que creó el helper):
+    el caller decide cuándo. Si commiteás ANTES de llamar, el DELETE pendiente se
+    descarta en el ``close()`` y el cleanup no ocurrió — aunque la suite anuncie que
+    sí. Patrón de referencia: ``test_liquidaciones.py``, que commitea después.
+    """
     usuario = db.query(Usuario).filter(Usuario.correo == correo).first()
     if usuario is None:
         return 0
