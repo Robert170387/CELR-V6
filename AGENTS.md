@@ -21,7 +21,8 @@ CELR v6 — Colombian heavy-truck fleet management app ("gestión de flota de ca
   este repo miente sobre ausencias: `AUDITORIA_CELR_v6.md` afirma que no hay recuperación de
   contraseña. **Sí hay** — lleva 97 commits desfasada. Los documentos vencidos llevan banner ⛔
   en la raíz; no los uses como estado.
-- `SESSION-HANDOFF.md` (raíz) es el estado de salida de la sesión anterior.
+- `docs/00-context/CURRENT.md` (versionado) es el estado de salida de la sesión. Se
+  actualiza al cerrar cada sub-fase, no durante. `CURRENT.md` > `git log` si divergen.
 
 ## Clasificación del conocimiento
 
