@@ -237,6 +237,25 @@ forma silenciosa, y el costo de no aplicarlas no aparece en los tests.
    concluir que un cambio de frontend no surtió efecto. Ocurrió en A5.3 (el `dist` del contenedor
    sí era nuevo y el navegador servía el viejo) y ya había mordido antes en la sub-fase 2.
 
+   sí era nuevo y el navegador servía el viejo) y ya había mordido antes en la sub-fase 2.
+
+5. **Trampa: la redirección de PowerShell se come los backticks.** En una cadena de PowerShell
+   con comillas dobles, el backtick es el carácter de escape: seguido de una vocal lo borra, y
+   antes de una `n`, `r` o `t` lo convierte en un carácter de control. Consecuencia **medida**:
+   un `-replace` pensado para arreglar tildes en Markdown convirtió identificadores reales —
+   `viaje_id` → `iaje_id`, `vehiculo_id` → `ehiculo_id`, `flypass_transacciones` →
+   `lypass_transacciones` — **sin error ni aviso**, porque el resultado sigue siendo texto
+   válido y ningún gate lo detecta.
+
+   **Regla: usar la herramienta de edición para escribir o corregir Markdown**, nunca
+   `-replace`, `Set-Content` o un here-string con backticks dentro. Si hace falta shell para
+   ensamblar archivos, escribir el bloque aparte con la herramienta de edición y **concatenar
+   por líneas** (leer y escribir con la codificación explícita), sin pasar el contenido por una
+   cadena de PowerShell.
+
+   Misma familia que el `commit -F` con redirección (§7) y que el cp1252 bajo pipe (§3): el
+   tooling corrupto el texto en silencio y el resultado parece válido.
+
 ### Deuda técnica activa
 
 | # | Deuda | Nota |
