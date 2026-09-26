@@ -1,9 +1,9 @@
 # GATES.md — calidad
 
 Fuente operativa completa: [`../../INSTRUCCIONES_OPENCODE.md`](../../INSTRUCCIONES_OPENCODE.md)
-§3–§4. Este documento es el **resumen accionable** y las siete normas, que son lo que más
-se olvida. Las cuatro primeras viven también en `INSTRUCCIONES §4`; las tres de
-verificación (5, 6 y 7) son **solo de este archivo** — si allá no están, es lo esperado.
+§3–§4. Este documento es el **resumen accionable** y las ocho normas, que son lo que más
+se olvida. Las cuatro primeras viven también en `INSTRUCCIONES §4`; las cuatro de
+verificación (5 a 8) son **solo de este archivo** — si allá no están, es lo esperado.
 
 ## Los cuatro gates
 
@@ -118,12 +118,13 @@ antes de concluir que un cambio de frontend no surtió efecto. Ya mordió dos ve
 
 ---
 
-# Las tres normas de verificación
+# Las cuatro normas de verificación
 
 Las cuatro anteriores son **normas de defecto**: describen una clase de fallo que ya
-ocurrió. Estas tres son **normas de verificación**: un check que hay que hacer *antes* de
+ocurrió. Estas cuatro son **normas de verificación**: un check que hay que hacer *antes* de
 escribir, o sobre lo que se acaba de escribir, para no descubrir tarde que lo que se iba
-a usar no existe — o que existe pero no hace lo que su nombre promete.
+a usar no existe — o que existe pero no hace lo que su nombre promete — o que el assert
+mide menos de lo que la invariante afirma.
 
 ## 5. Verificar los nombres antes de escribir un gate
 
@@ -202,10 +203,44 @@ verificar rutas.**
 **hace**. Cuando el check sea sobre un contrato, probá el contrato de punta a punta,
 no su envoltorio.
 
+## 8. La flag gobierna lo que declara gobernar
+
+Un campo booleano que declara una invariante sobre N elementos es una **afirmación
+sobre los N**. El escenario y el assert tienen que cubrir los N.
+
+**Bug detectado (R1, 2026-09-26), medido.** `snapshots_completos` declara que los
+**6** snapshots de `viajes_odt` están o no calculados. TR-2 y TR-11 verificaban
+**2**. Los otros 4 podían llegar calculados y ningún assert lo notaba — que es
+literalmente lo que pasó: los 4 se colaban con valores recalculados.
+
+Hay un segundo motivo por el que escapó, y es el más importante: el bug lo motivó
+**un** snapshot nulo. Escribir el escenario para el caso que motivó el bug deja
+sin probar todo lo demás que la invariante afirma.
+
+**Patrón de referencia** — verificar el alcance, no el subrange:
+
+```python
+# el flag dice 6, el assert mira 6
+for campo in SNAPSHOT_NAMES:
+    setattr(viaje, campo, None)
+...
+colados = [c for c in SNAPSHOT_NAMES if d["viaje"][c] is not None]
+assert not colados, f"llegan calculados pese a estar NULL: {colados}"
+```
+
+El assert que **reporta la lista completa** de lo que se coló, en vez de frenar en el
+primero, es lo que volvió el fallo diagnosticable en un vistazo en vez de en tres
+corridas.
+
+**El generalizador:** antes de escribir un assert sobre una invariante, contá cuántos
+elementos afirma la invariante. Si el assert mira menos que eso, no está probando la
+invariante — está probando el ejemplo. Y es de la misma familia que la 7: el check pasó
+y no midió lo que decía medir.
+
 > **Duplicación deliberada.** Las normas 1–4 están en `INSTRUCCIONES_OPENCODE.md` §4 con
-> su evidencia. La 5, la 6 y la 7 **no** se copian allá todavía: `INSTRUCCIONES` ya tiene
+> su evidencia. La 5 a la 8 **no** se copian allá todavía: `INSTRUCCIONES` ya tiene
 > pendientes sin commitear de esta sesión, y anexar ahí mezclaría dos cambios. Cuando
-> Commit B cierre, la 5, la 6 y la 7 deben pasar también a `INSTRUCCIONES §4` para que un agente
+> Commit B cierre, la 5 a la 8 deben pasar también a `INSTRUCCIONES §4` para que un agente
 > que solo lea ese archivo no se las pierda.
 
 ---
