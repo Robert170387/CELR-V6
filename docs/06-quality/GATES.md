@@ -67,9 +67,23 @@ presentación lo tira, y **ningún test de endpoint lo detecta**. Ocurrió 5 vec
 | A5.3 | `setErrorModal` pintado fuera de todo modal ⇒ **403 invisible**. |
 | A5.3 | `catch` mudo en `writeText` ⇒ clic sin señal. |
 | **A5.4** | El interceptor de 401 veía "token inválido" como "sesión expirada", intentaba refrescar, fallaba y **expulsaba a `/login` sin mostrar el error**. |
+| **R1** | Una suite imprimía `Refresh tokens eliminados: 1` **sin haber eliminado nada**: hacía `db.commit()` → `limpiar_tokens_nuevos()` → `db.close()`, y el `DELETE` pendiente se descartaba al cerrar. El print era la única "aserción" del cleanup. **Medido: +1 token por corrida.** |
 
 **Cómo se previene:** preguntarse, por cada `catch`, *¿dónde ve esto el usuario?* Si la respuesta
 es "en ningún lado", el código está mal.
+
+**Y la subclase que no tiene usuario: un `print` que declara un efecto.** La norma hable
+de lo que el usuario no ve; esta es la variante donde **nadie** lo ve, porque el único que
+dependía del efecto era el propio mensaje que lo anunciaba.
+
+> **Una suite no puede auto-declarar éxito sobre su propio cleanup.** Un print
+> `eliminados: N` es intención, no evidencia. La evidencia es el **conteo antes/después**:
+> si el conteo no cambió y la suite dice que borró, el cleanup no ocurrió.
+
+**Medido el alcance (2026-09-26):** **10 de las 12 suites** limpian `refresh_tokens` sin
+ninguna verificación del efecto. Nueve lo hacen bien; una no. La que no, solo se detectó
+porque alguien contó los tokens a mano — **no porque un gate lo mirara.** Con nueve
+acertando por costumbre, la convención parecería confiable y no hay nada que la proteja.
 
 ## 2. Campo o función sin consumidor, prohibido
 
