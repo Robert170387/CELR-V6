@@ -177,11 +177,15 @@ def main() -> int:
         print(f"  snapshots_completos=True total_deducibles={d['total_deducibles']}: OK")
 
         # --- TR-2: snapshot NULL se propaga, no se rellena ---------------
-        print("\n=== TR-2: snapshot NULL -> snapshots_completos=False, total=null ===")
+        # Se anulan LOS 6, no dos. `snapshots_completos` declara una invariante
+        # sobre los seis, asi que el escenario tiene que cubrirlos a todos: si
+        # solo se anula un par, el test no puede afirmar nada sobre los otros
+        # cuatro. Ver la nota de TR-11.
+        print("\n=== TR-2: snapshots NULL -> snapshots_completos=False, total=null ===")
         v2 = crear_viaje(db, veh.id, cond.id, date(2027, 1, 11))
         viajes_creados.append(v2.id)
-        v2.reteica_valor = None
-        v2.saldo_flete_esperado = None
+        for campo in SNAPSHOT_NAMES:
+            setattr(v2, campo, None)
         db.commit()
         r = CLIENT.get(f"/api/v1/viajes/{v2.id}/resumen", headers=H)
         assert r.status_code == 200, r.text
@@ -198,18 +202,23 @@ def main() -> int:
         # un `snapshots_completos=false`. El modal se contradice a si mismo: avisa que
         # los valores son "—" y muestra el resultado del recalculo. Encontrado
         # por render en R1-frontend, no por un assert.
-        print("\n=== TR-11: con snapshot NULL, el payload NO trae cifras recalculadas ===")
+        #
+        # Esta es la version corregida: la primera comprobaba 2 de los 6 snapshots
+        # que la flag declara gobernar, y los otros 4 se colaban sin que nadie lo
+        # notara. El alcance del assert tiene que ser el del contrato, no el del
+        # bug que lo motivo.
+        print("\n=== TR-11: con snapshots NULL, el payload NO trae cifras recalculadas ===")
         d11 = CLIENT.get(f"/api/v1/viajes/{v2.id}/resumen", headers=H).json()
         assert d11["snapshots_completos"] is False
-        assert d11["viaje"]["reteica_valor"] is None, (
-            f"reteica_valor llega como {d11['viaje']['reteica_valor']!r}: es el "
-            f"recalculo en memoria de bloqueos_cierre_odt, no el valor de la BD"
+        colados = [
+            c for c in SNAPSHOT_NAMES if d11["viaje"][c] is not None
+        ]
+        assert not colados, (
+            f"estos snapshots llegan calculados pese a estar NULL en la BD: {colados}. "
+            f"El payload debe reflejar la BD, no el recalculo en memoria de "
+            f"bloqueos_cierre_odt"
         )
-        assert d11["viaje"]["saldo_flete_esperado"] is None, (
-            f"saldo_flete_esperado llega como {d11['viaje']['saldo_flete_esperado']!r}: "
-            f"el payload debe reflejar la BD, no un recalculo hipotetico"
-        )
-        print("  los 2 snapshots llegan en null pese al recalculo interno: OK")
+        print(f"  los {len(SNAPSHOT_NAMES)} snapshots llegan en null pese al recalculo interno: OK")
 
         # --- TR-3: listas vacias ------------------------------------------
         print("\n=== TR-3: viaje sin gastos/ingresos/peajes ===")
