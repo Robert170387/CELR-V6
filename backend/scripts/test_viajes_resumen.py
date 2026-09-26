@@ -373,6 +373,11 @@ def main() -> int:
             f"gastos={len(gastos_creados)} viajes={len(viajes_creados)}"
         )
         tokens = limpiar_tokens_nuevos(db, "test@celr.com", tokens_antes)
+        # El commit va DESPUES del helper, no antes. `limpiar_tokens_nuevos` hace
+        # un delete sin commit: sin esto, el borrado se descarta en el close() de
+        # abajo y la suite REPORTA una limpieza que no ocurrio. Medido: +1 token
+        # por corrida hasta que se corrigio.
+        db.commit()
         print(f"[CLEANUP] Refresh tokens del login eliminados: {tokens}")
         db.close()
 
