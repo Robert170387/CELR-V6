@@ -41,7 +41,7 @@ FRESH_DB_URL = APP_DB_URL.set(database=FRESH_DB_NAME)
 ADMIN_DB_URL = APP_DB_URL.set(database="postgres")
 FRESH_DB_URL_TEXT = FRESH_DB_URL.render_as_string(hide_password=False)
 ADMIN_DB_URL_TEXT = ADMIN_DB_URL.render_as_string(hide_password=False)
-HEAD_REVISION = "f6a7b8c9d0e1"
+HEAD_REVISION = "a7b8c9d0e1f2"
 BASELINE_TABLES = [
     "usuarios",
     "vehiculos",
