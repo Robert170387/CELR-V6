@@ -1,9 +1,9 @@
 # GATES.md — calidad
 
 Fuente operativa completa: [`../../INSTRUCCIONES_OPENCODE.md`](../../INSTRUCCIONES_OPENCODE.md)
-§3–§4. Este documento es el **resumen accionable** y las seis normas, que son lo que más
-se olvida. Las cuatro primeras viven también en `INSTRUCCIONES §4`; las dos de
-verificación (5 y 6) son **solo de este archivo** — si allá no están, es lo esperado.
+§3–§4. Este documento es el **resumen accionable** y las siete normas, que son lo que más
+se olvida. Las cuatro primeras viven también en `INSTRUCCIONES §4`; las tres de
+verificación (5, 6 y 7) son **solo de este archivo** — si allá no están, es lo esperado.
 
 ## Los cuatro gates
 
@@ -118,11 +118,12 @@ antes de concluir que un cambio de frontend no surtió efecto. Ya mordió dos ve
 
 ---
 
-# Las dos normas de verificación
+# Las tres normas de verificación
 
 Las cuatro anteriores son **normas de defecto**: describen una clase de fallo que ya
-ocurrió. Estas dos son **normas de verificación**: un check que hay que hacer *antes* de
-escribir, para no descubrir tarde que lo que se iba a usar no existe.
+ocurrió. Estas tres son **normas de verificación**: un check que hay que hacer *antes* de
+escribir, o sobre lo que se acaba de escribir, para no descubrir tarde que lo que se iba
+a usar no existe — o que existe pero no hace lo que su nombre promete.
 
 ## 5. Verificar los nombres antes de escribir un gate
 
@@ -174,10 +175,37 @@ a algo real** es peor que uno que no resuelve: el primero instala el error sin q
 **Regla:** el mismo check aplica a paquetes, iconos, clases de pydantic y helpers de
 librería. Si el nombre no está en el artefacto instalado, no existe.
 
+## 7. Verificar contra la API real, no contra el reflejo de la librería
+
+Un objeto puede existir y **no-devolver lo que su nombre promete**. Verificar que el
+símbolo se importa no alcanza: hay que ver qué devuelve.
+
+**Bug detectado (R1-backend, 2026-09-26).** Al agregar una ruta se comprobó
+`app.routes` y dio 6 entradas, ninguna de viajes. La ruta **sí estaba registrada**:
+
+```python
+len(app.routes)                      # 6 — solo las de FastAPI + health
+len(app.openapi()["paths"])          # 46 — la respuesta correcta
+```
+
+En esta versión de FastAPI, `include_router` no aplana: guarda un `_IncludedRouter`
+perezoso y las rutas viven adentro. **`app.routes` no sirve para contar ni para
+verificar rutas.**
+
+```powershell
+# contra el servidor vivo, que es la forma que no miente
+(Invoke-RestMethod "http://localhost:8001/openapi.json").paths.PSObject.Properties.Count
+```
+
+**El generalizador:** es la misma forma del gate verde que no corrió. El check
+"importé el símbolo" pasó, y el símbolo estaba; lo que no se verificó fue lo que
+**hace**. Cuando el check sea sobre un contrato, probá el contrato de punta a punta,
+no su envoltorio.
+
 > **Duplicación deliberada.** Las normas 1–4 están en `INSTRUCCIONES_OPENCODE.md` §4 con
-> su evidencia. La 5 y la 6 **no** se copian allá todavía: `INSTRUCCIONES` ya tiene
+> su evidencia. La 5, la 6 y la 7 **no** se copian allá todavía: `INSTRUCCIONES` ya tiene
 > pendientes sin commitear de esta sesión, y anexar ahí mezclaría dos cambios. Cuando
-> Commit B cierre, la 5 y la 6 deben pasar también a `INSTRUCCIONES §4` para que un agente
+> Commit B cierre, la 5, la 6 y la 7 deben pasar también a `INSTRUCCIONES §4` para que un agente
 > que solo lea ese archivo no se las pierda.
 
 ---
