@@ -1,6 +1,11 @@
 fastapi
 uvicorn[standard]
-sqlalchemy
+# PINEADO: SQLAlchemy 2.1 cambio el driver por defecto de "postgresql://" de
+# psycopg2 a psycopg3. Como aqui se instala psycopg2-binary, un build que
+# tomase 2.1 dejaba el contenedor en restart loop con
+# "ModuleNotFoundError: No module named 'psycopg'". El salto a 2.1 + psycopg3
+# queda como fase propia y consciente, no como efecto colateral de un rebuild.
+sqlalchemy>=2.0,<2.1
 psycopg2-binary
 pydantic-settings
 python-dotenv
@@ -16,6 +21,9 @@ Pillow
 # Adaptador OCR en la nube (opcional): activar con OCR_ENGINE=google
 # google-cloud-vision
 # Requerido por starlette.testclient (TestClient) en scripts de prueba
-httpx2
+# (17 suites lo usan). Antes decia "httpx2": ese es otro paquete de PyPI, que
+# arrastra "httpcore2" y NO sirve para TestClient. Ningun .py importa httpx ni
+# httpx2 directamente; el consumo es transitivo via fastapi.testclient.
+httpx
 # Cliente HTTP para la suite E2E (scripts/e2e_flow_test.py)
 requests>=2.31
