@@ -35,3 +35,21 @@ export const extraerMensajeError = (err: any): string => {
 
 export const formatearMoneda = (valor: number | string | null | undefined): string =>
   `$${Number(valor || 0).toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+
+// Variante con centavos, para vistas donde se comparan cifras entre sí.
+// `formatearMoneda` redondea a 0 decimales: sirve para escanear una tabla,
+// pero en el resumen de viaje produciría un número DISTINTO al real
+// (9.414.000,50 -> "$9.414.001"), que es la misma clase de problema que
+// inventar un total_deducibles en vez de propagar el NULL.
+export const formatearMonedaExacta = (valor: number | string | null | undefined): string => {
+  if (valor === null || valor === undefined || valor === '') return '—'
+  const n = Number(valor)
+  if (Number.isNaN(n)) return '—'
+  return `$${n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+// Un valor ausente se muestra como "—", nunca como $0: $0 afirma que el
+// servidor calculó cero, que es exactamente lo que `snapshots_completos=false`
+// niega.
+export const formatearMonedaOpcional = (valor: number | string | null | undefined): string =>
+  valor === null || valor === undefined ? '—' : formatearMonedaExacta(valor)

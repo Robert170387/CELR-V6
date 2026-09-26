@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { Package, Truck, Plus, Loader2, AlertCircle, CheckCircle2, XCircle, Pencil, Trash2, X, Calculator, ShieldAlert, Info, TriangleAlert } from 'lucide-react'
+import { Package, Truck, Plus, Loader2, AlertCircle, CheckCircle2, XCircle, Pencil, Trash2, X, Calculator, ShieldAlert, Info, TriangleAlert, FileText } from 'lucide-react'
 import { viajesAPI, vehiculosAPI, conductoresAPI, gastosAPI, proveedoresAPI } from '@/api'
+import type { Viaje, ViajeResumen } from '@/api'
 import Pagination from '@/components/Pagination'
 import SelectorCiudad from '@/components/SelectorCiudad'
-import { extraerMensajeError, esErrorDeRed, formatearMoneda } from '@/utils/format'
+import { extraerMensajeError, esErrorDeRed, formatearMoneda, formatearMonedaExacta, formatearMonedaOpcional } from '@/utils/format'
 import { encolarOffline } from '@/utils/offlineStore'
 import { useAuth } from '@/context/AuthContext'
 
@@ -31,46 +32,9 @@ interface GastoResumen {
   valor_total: string
 }
 
-interface Viaje {
-  id: number
-  numero_odt: string
-  vehiculo_id: number
-  conductor_id: number
-  origen: string
-  destino: string
-  origen_municipio_id?: number | null
-  destino_municipio_id?: number | null
-  fecha_salida: string
-  estado: string
-  // FASE A2 — inputs manuales de la ODT
-  tipo_viaje: string
-  empresa_manifiesto_id?: number | null
-  fecha_manifiesto?: string | null
-  valor_flete_manifiesto: string | null
-  retefuente_porcentaje?: string | null
-  reteica_porcentaje?: string | null
-  otras_deducciones?: string | null
-  anticipo_manifiesto?: string | null
-  porcentaje_comision?: string | null
-  // FASE A2 — calculados por el servidor (solo lectura)
-  flete_neto: string | null
-  retefuente_valor?: string | null
-  reteica_valor?: string | null
-  comision_conductor?: string | null
-  saldo_flete_esperado?: string | null
-  gastos_totales_viaje?: string | null
-  utilidad_neta_odt?: string | null
-  // FASE ODT — inputs del form (existen en modelo/schema; UI añadida)
-  num_manifiesto?: string | null
-  tipo_carga?: string | null
-  peso_declarado_ton?: string | null
-  peso_bascula_origen?: string | null
-  peso_bascula_destino?: string | null
-  km_inicial?: string | null
-  km_final?: string | null
-  km_recorridos?: string | null
-  fecha_llegada?: string | null
-}
+// `Viaje` vive en `@/api` (ver la interface ahi): es el contrato de la ODT, no
+// de esta pantalla, y el resumen de R1 la referencia desde ahi. Duplicarla
+// aqui es la forma corta de que un dia un tipo diga una cosa y el otro otra.
 
 const estadoStyles: Record<string, string> = {
   en_curso: 'bg-blue-500/20 text-blue-400',
@@ -195,6 +159,14 @@ const Viajes: React.FC = () => {
 
   const [editando, setEditando] = useState<Viaje | null>(null)
   const [editForm, setEditForm] = useState<Record<string, string>>({})
+
+  // R1: modal de resumen de viaje.
+  const [resumen, setResumen] = useState<ViajeResumen | null>(null)
+  // Guarda el id de la fila que está cargando, no un boolean: con un boolean
+  // global se pondrían a girar los botones de TODAS las filas a la vez.
+  const [cargandoResumen, setCargandoResumen] = useState<number | null>(null)
+  const [errorResumen, setErrorResumen] = useState<string | null>(null)
+  const [listasExtendidas, setListasExtendidas] = useState<Record<string, boolean>>({})
   const [editError, setEditError] = useState('')
   const [editandoSubmit, setEditandoSubmit] = useState(false)
 
@@ -434,6 +406,27 @@ const Viajes: React.FC = () => {
     } finally {
       setEliminando(false)
     }
+  }
+
+  const verResumen = async (viaje: Viaje) => {
+    setCargandoResumen(viaje.id)
+    setErrorResumen(null)
+    setListasExtendidas({})
+    try {
+      // El spinner va en la fila; el modal solo se abre cuando hay datos.
+      // Si se abriera en estado de carga, un error dejaría un modal vacío sin
+      // contexto de que fue la carga lo que falló.
+      setResumen(await viajesAPI.resumen(viaje.id))
+    } catch (err) {
+      setErrorResumen(extraerMensajeError(err))
+    } finally {
+      setCargandoResumen(null)
+    }
+  }
+
+  const cerrarResumen = () => {
+    setResumen(null)
+    setErrorResumen(null)
   }
 
   const verBloqueosCierre = async (viaje: Viaje) => {
@@ -1082,6 +1075,14 @@ const FilaCalculada: React.FC<{ label: string; valor: number; tono?: string }> =
                           <div className="flex items-center justify-end gap-1">
                             <button
                               type="button"
+                              onClick={() => verResumen(viaje)}
+                              className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-primary-400 transition-colors"
+                              title="Ver resumen del viaje"
+                            >
+                              {cargandoResumen === viaje.id ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => verBloqueosCierre(viaje)}
                               className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-amber-400 transition-colors"
                               title="Bloqueos de cierre"
@@ -1218,6 +1219,219 @@ const FilaCalculada: React.FC<{ label: string; valor: number; tono?: string }> =
         </div>
       )}
 
+      {/* R1: error de carga del resumen. Vive acá y no dentro del modal, porque
+          el modal solo se abre cuando hay datos: un fallo de carga necesita su
+          propio espacio o el usuario no ve absolutamente nada. */}
+      {errorResumen && (
+        <div className="flex items-center gap-2 bg-danger-500/10 border border-danger-500/30 text-danger-500 px-4 py-3 rounded-lg mb-4">
+          <AlertCircle size={18} />
+          <span>{errorResumen}</span>
+          <button type="button" onClick={cerrarResumen} className="ml-auto p-1 rounded hover:bg-slate-800" title="Cerrar">
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
+      {resumen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="card-truck w-full max-w-4xl max-h-[90vh] flex flex-col">
+            <div className="flex items-start gap-3 mb-4 shrink-0">
+              <div className="p-2 rounded-full bg-primary-500/20 text-primary-400">
+                <FileText size={22} />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-white">Resumen del viaje</h3>
+                <p className="text-sm text-slate-400 mt-1">
+                  ODT <span className="text-white font-semibold">{resumen.numero_odt}</span>
+                  <span className="ml-2">{resumen.viaje.estado}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={cerrarResumen}
+                className="p-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+                title="Cerrar"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto pr-1 space-y-5">
+              {!resumen.snapshots_completos && (
+                <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-400 px-4 py-3 rounded-lg">
+                  <TriangleAlert size={18} className="mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold">Cálculos incompletos</p>
+                    <p className="text-xs mt-1">
+                      Los snapshots no fueron generados. Los valores que dependen de ellos
+                      aparecen como <span className="font-mono">—</span> en vez de 0: no se
+                      inventa una cifra que el servidor nunca calculó. Editá el viaje o tocá
+                      un gasto para que se recalculen.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <section>
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">
+                  Datos del viaje
+                </h4>
+                <dl className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2 text-sm">
+                  <Dato label="Origen" valor={resumen.viaje.origen} />
+                  <Dato label="Destino" valor={resumen.viaje.destino} />
+                  <Dato label="Tipo" valor={resumen.viaje.tipo_viaje} />
+                  <Dato label="Tipo de carga" valor={resumen.viaje.tipo_carga} />
+                  <Dato label="Fecha salida" valor={formatearFechaCorta(resumen.viaje.fecha_salida)} />
+                  <Dato label="Fecha llegada" valor={formatearFechaCorta(resumen.viaje.fecha_llegada)} />
+                  <Dato label="Km inicial" valor={formatearKm(resumen.viaje.km_inicial)} />
+                  <Dato label="Km final" valor={formatearKm(resumen.viaje.km_final)} />
+                  <Dato label="Km recorridos" valor={formatearKm(resumen.viaje.km_recorridos)} />
+                  <Dato label="N° manifiesto" valor={resumen.viaje.num_manifiesto} />
+                  <Dato label="Empresa" valor={resumen.viaje.empresa_manifiesto} />
+                </dl>
+              </section>
+
+              <section>
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">
+                  Cálculos
+                </h4>
+                <dl className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2 text-sm">
+                  <Dato label="Valor flete manifiesto" valor={formatearMonedaOpcional(resumen.viaje.valor_flete_manifiesto)} />
+                  <Dato label="Retención fuente" valor={formatearMonedaOpcional(resumen.viaje.retefuente_valor)} />
+                  <Dato label="Retención ICA" valor={formatearMonedaOpcional(resumen.viaje.reteica_valor)} />
+                  <Dato label="Otras deducciones" valor={formatearMonedaOpcional(resumen.viaje.otras_deducciones)} />
+                  <Dato label="Total deducibles" valor={formatearMonedaOpcional(resumen.total_deducibles)} destacado />
+                  <Dato label="Flete neto" valor={formatearMonedaOpcional(resumen.viaje.flete_neto)} />
+                  <Dato label="Anticipo manifiesto" valor={formatearMonedaOpcional(resumen.viaje.anticipo_manifiesto)} />
+                  <Dato label="Comisión conductor" valor={formatearMonedaOpcional(resumen.viaje.comision_conductor)} />
+                  <Dato label="Gastos totales viaje" valor={formatearMonedaOpcional(resumen.viaje.gastos_totales_viaje)} />
+                  <Dato label="Saldo flete esperado" valor={formatearMonedaOpcional(resumen.viaje.saldo_flete_esperado)} destacado />
+                  <Dato label="Utilidad neta ODT" valor={formatearMonedaOpcional(resumen.viaje.utilidad_neta_odt)} destacado />
+                </dl>
+                {/* Las tres cifras de ganancia. Ver el reporte de R1 Fase 0. */}
+                <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                  Existen <strong className="text-slate-400">tres cifras de ganancia</strong> para
+                  el mismo viaje y no tienen por qué coincidir: la <em>utilidad neta ODT</em> de
+                  arriba, el <em>Margen Est.</em> de la tabla (no descuenta comisión) y el{' '}
+                  <em>saldo de la liquidación</em> (desglose empresa/conductor distinto). La
+                  utilidad de arriba resta gastos <code className="text-slate-400">owner</code> y{' '}
+                  <code className="text-slate-400">conductor</code>; el desglose de liquidación
+                  solo clasifica <code className="text-slate-400">empresa</code> y{' '}
+                  <code className="text-slate-400">conductor</code>.
+                </p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Para ver el cálculo de liquidación de este viaje, entrá a{' '}
+                  <strong className="text-slate-400">Liquidaciones</strong> y cargá el viaje N°{' '}
+                  <span className="font-mono text-slate-400">{resumen.viaje_id}</span>. Es un
+                  concepto distinto de la utilidad de arriba.
+                </p>
+              </section>
+
+              <section className="space-y-2">
+                {resumen.bloqueos.length > 0 ? (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-red-400 mb-2">
+                      Impide el cierre
+                    </p>
+                    <ul className="space-y-2">
+                      {resumen.bloqueos.map((b, i) => (
+                        <li key={i} className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-lg text-sm">
+                          <TriangleAlert size={16} className="mt-0.5 shrink-0" />
+                          <span>{b}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/30 text-green-500 px-4 py-3 rounded-lg">
+                    <CheckCircle2 size={18} />
+                    <span>
+                      {resumen.informativos.length > 0
+                        ? 'No hay bloqueos. Hay información adicional abajo.'
+                        : 'La ODT no presenta bloqueos y puede finalizarse.'}
+                    </span>
+                  </div>
+                )}
+
+                {resumen.informativos.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-sky-400 mb-2">
+                      Informativo — no impide el cierre
+                    </p>
+                    <ul className="space-y-2">
+                      {resumen.informativos.map((b, i) => (
+                        <li key={i} className="flex items-start gap-2 bg-sky-500/10 border border-sky-500/30 text-sky-400 px-4 py-3 rounded-lg text-sm">
+                          <Info size={16} className="mt-0.5 shrink-0" />
+                          <span>{b}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </section>
+
+              <section className="space-y-4">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Movimientos del viaje
+                </h4>
+                <ListaResumen
+                  titulo="Gastos"
+                  lista={resumen.gastos}
+                  columnas={[
+                    { etiqueta: 'ID', render: (g) => String(g.id) },
+                    { etiqueta: 'Categoría', render: (g) => g.categoria },
+                    { etiqueta: 'Valor', render: (g) => formatearMonedaExacta(g.valor_total) },
+                    { etiqueta: 'Asumido por', render: (g) => g.asumido_por },
+                    { etiqueta: 'Estado', render: (g) => g.estado_pago },
+                  ]}
+                  extendida={!!listasExtendidas.gastos}
+                  onToggle={() => setListasExtendidas((s) => ({ ...s, gastos: !s.gastos }))}
+                  vacio="Sin gastos vinculados."
+                />
+                <ListaResumen
+                  titulo="Ingresos"
+                  lista={resumen.ingresos}
+                  columnas={[
+                    { etiqueta: 'ID', render: (g) => String(g.id) },
+                    { etiqueta: 'Tipo', render: (g) => g.tipo_ingreso },
+                    { etiqueta: 'Fecha', render: (g) => formatearFechaCorta(g.fecha_ingreso) ?? '—' },
+                    { etiqueta: 'Valor', render: (g) => formatearMonedaExacta(g.valor) },
+                    { etiqueta: 'Estado', render: (g) => g.estado_pago },
+                  ]}
+                  extendida={!!listasExtendidas.ingresos}
+                  onToggle={() => setListasExtendidas((s) => ({ ...s, ingresos: !s.ingresos }))}
+                  vacio="Sin ingresos vinculados."
+                />
+                <ListaResumen
+                  titulo="Peajes Flypass"
+                  lista={resumen.peajes}
+                  columnas={[
+                    { etiqueta: 'ID', render: (g) => String(g.id) },
+                    { etiqueta: 'Peaje', render: (g) => g.nombre_peaje ?? '—' },
+                    { etiqueta: 'Ciudad', render: (g) => g.ciudad_peaje ?? '—' },
+                    { etiqueta: 'Valor', render: (g) => formatearMonedaExacta(g.valor) },
+                    { etiqueta: 'Legalizado', render: (g) => (g.legalizado ? 'Sí' : 'No') },
+                  ]}
+                  extendida={!!listasExtendidas.peajes}
+                  onToggle={() => setListasExtendidas((s) => ({ ...s, peajes: !s.peajes }))}
+                  vacio="Sin peajes registrados en la ruta."
+                />
+              </section>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 mt-4 shrink-0">
+              <button
+                type="button"
+                onClick={cerrarResumen}
+                className="py-2 px-4 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {bloqueosInfo && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <div className="card-truck w-full max-w-md">
@@ -1304,3 +1518,100 @@ const FilaCalculada: React.FC<{ label: string; valor: number; tono?: string }> =
 }
 
 export default Viajes
+
+// --- R1: helpers del modal de resumen -------------------------------------
+
+const formatearFechaCorta = (valor: string | null | undefined): string | null => {
+  if (!valor) return null
+  const d = new Date(valor)
+  return Number.isNaN(d.getTime()) ? valor : d.toLocaleDateString('es-CO')
+}
+
+const formatearKm = (valor: string | null | undefined): string | null =>
+  valor === null || valor === undefined ? null : Number(valor).toLocaleString('es-CO')
+
+// Un campo del resumen. Un valor ausente se muestra como "—", nunca como 0: un
+// 0 afirmaría que el servidor calculó cero, que es justo lo que
+// `snapshots_completos=false` niega.
+const Dato: React.FC<{ label: string; valor: string | null | undefined; destacado?: boolean }> = ({ label, valor, destacado }) => (
+  <div>
+    <dt className="text-xs text-slate-500">{label}</dt>
+    <dd className={destacado ? 'text-white font-semibold' : 'text-slate-300'}>{valor ?? '—'}</dd>
+  </div>
+)
+
+interface ColumnaLista<T> {
+  etiqueta: string
+  render: (item: T) => string
+}
+
+// "Topada con ver más" sobre un tope FIJO del servidor (200). No hay paginación
+// en el endpoint, así que "ver más" no tiene a qué pedir: cuando la lista llega
+// truncada se dice explícitamente cuántos hay y cuántos se ven, en vez de
+// prometer un botón que no hace nada.
+const ListaResumen = <T,>({ titulo, lista, columnas, extendida, onToggle, vacio }: {
+  titulo: string
+  lista: { items: T[]; total: number; truncado: boolean }
+  columnas: ColumnaLista<T>[]
+  extendida: boolean
+  onToggle: () => void
+  vacio: string
+}) => {
+  if (lista.total === 0) {
+    return (
+      <div>
+        <p className="text-sm text-slate-300 font-semibold">{titulo}</p>
+        <p className="text-xs text-slate-500 mt-1">{vacio}</p>
+      </div>
+    )
+  }
+  const visibles = extendida ? lista.items : lista.items.slice(0, 5)
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-slate-300 font-semibold">
+          {titulo} <span className="text-slate-500 font-normal">({lista.total})</span>
+        </p>
+        {lista.truncado && (
+          <span className="text-xs text-amber-400">
+            {extendida
+              ? `Mostrando los primeros ${lista.items.length} de ${lista.total}`
+              : `Mostrando 5 de ${lista.total}`}
+          </span>
+        )}
+      </div>
+      <table className="w-full mt-1 text-xs">
+        <thead>
+          <tr className="text-slate-500">
+            {columnas.map((c) => (
+              <th key={c.etiqueta} className="text-left font-normal py-1">{c.etiqueta}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {visibles.map((item, i) => (
+            <tr key={i} className="border-t border-slate-800">
+              {columnas.map((c) => (
+                <td key={c.etiqueta} className="py-1 text-slate-300 pr-3">{c.render(item)}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {lista.truncado && (
+        <button
+          type="button"
+          onClick={onToggle}
+          className="mt-1 text-xs text-sky-400 hover:text-sky-300 transition-colors"
+        >
+          {extendida ? 'Ver menos' : 'Ver más'}
+        </button>
+      )}
+      {lista.truncado && extendida && (
+        <p className="text-xs text-slate-600 mt-1">
+          El endpoint entrega hasta 200 por lista; paginación no disponible.
+        </p>
+      )}
+    </div>
+  )
+}

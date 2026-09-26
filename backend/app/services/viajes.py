@@ -80,9 +80,26 @@ def resumen_viaje(db: Session, viaje: ViajeODT) -> dict:
     #    consumidor, no antes por comodidad.
     snapshots_completos = not [c for c in SNAPSHOTS if getattr(viaje, c) is None]
     total_deducibles = _total_deducibles(viaje)
-    # 2) Bloqueos e informativos: UNA llamada, y el payload se arma despues
-    #    desde el mismo objeto, para que campo y texto digan la misma cifra.
+    # Se guardan los valores CRUDO porque el paso 2 puede cambiarlos.
+    en_base = {c: getattr(viaje, c) for c in SNAPSHOTS}
+
+    # 2) Bloqueos e informativos: UNA llamada.
     estado = bloqueos_cierre_odt(db, viaje)
+
+    # 2b) Se restauran los snapshots al valor de la BD.
+    #
+    # `bloqueos_cierre_odt` recalcula EN MEMORIA cuando alguno esta en NULL. Como
+    # ningun GET commitea, el cambio se pierde al cerrar la sesion, pero el objeto
+    # ORM ya quedo mutado. Serializarlo sin restaurar producia un payload con
+    # cifras recalculadas al lado de `snapshots_completos=false`, y el modal se
+    # contradia a si mismo: decia "estos valores aparecen como —" mientras
+    # mostraba el resultado del recalculo. Detectado por render en R1-frontend.
+    #
+    # Que la respuesta exponga el estado de la BD y no uno hipotetico es lo que
+    # hace confiable `snapshots_completos`: si el flag dice false, los campos de
+    # abajo son efectivamente null.
+    for campo, valor in en_base.items():
+        setattr(viaje, campo, valor)
 
     # 3) Listas 1:N.
     gastos = _lista(

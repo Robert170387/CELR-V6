@@ -192,6 +192,25 @@ def main() -> int:
         )
         print("  snapshots_completos=False total_deducibles=null: OK")
 
+        # --- TR-11: el payload expone el estado de la BD, no uno recalculado
+        # Sin esto, `bloqueos_cierre_odt` recalcula en memoria, el objeto queda
+        # mutado y el resumen devuelve cifras que la BD nunca guardo al lado de
+        # un `snapshots_completos=false`. El modal se contradice a si mismo: avisa que
+        # los valores son "—" y muestra el resultado del recalculo. Encontrado
+        # por render en R1-frontend, no por un assert.
+        print("\n=== TR-11: con snapshot NULL, el payload NO trae cifras recalculadas ===")
+        d11 = CLIENT.get(f"/api/v1/viajes/{v2.id}/resumen", headers=H).json()
+        assert d11["snapshots_completos"] is False
+        assert d11["viaje"]["reteica_valor"] is None, (
+            f"reteica_valor llega como {d11['viaje']['reteica_valor']!r}: es el "
+            f"recalculo en memoria de bloqueos_cierre_odt, no el valor de la BD"
+        )
+        assert d11["viaje"]["saldo_flete_esperado"] is None, (
+            f"saldo_flete_esperado llega como {d11['viaje']['saldo_flete_esperado']!r}: "
+            f"el payload debe reflejar la BD, no un recalculo hipotetico"
+        )
+        print("  los 2 snapshots llegan en null pese al recalculo interno: OK")
+
         # --- TR-3: listas vacias ------------------------------------------
         print("\n=== TR-3: viaje sin gastos/ingresos/peajes ===")
         d3 = CLIENT.get(f"/api/v1/viajes/{v1.id}/resumen", headers=H).json()

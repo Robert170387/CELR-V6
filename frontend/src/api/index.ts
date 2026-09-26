@@ -72,6 +72,9 @@ export const viajesAPI = {
   eliminar: (id: number) => apiClient.delete(`/viajes/${id}`),
   // FASE A2 — Regla 4: bloqueos para finalizar la ODT
   bloqueosCierre: (id: number) => apiClient.get(`/viajes/${id}/bloqueos-cierre`).then((r) => r.data as BloqueosCierre),
+  // R1: una sola llamada trae cabecera, calculos, las 3 listas 1:N y el
+  // estado de cierre. No usa conTotal(): eso es para listados {data,total}.
+  resumen: (id: number) => apiClient.get(`/viajes/${id}/resumen`).then((r) => r.data as ViajeResumen),
 }
 
 export const vehiculosAPI = {
@@ -167,6 +170,120 @@ export interface BloqueosCierre {
   /** Impide el cierre. */
   bloqueos: string[]
   /** Se informa, pero no impide el cierre. */
+  informativos: string[]
+}
+
+// --- R1: resumen completo de la ODT (GET /viajes/{id}/resumen) -------------
+// Los Decimals llegan como STRING desde el backend (Pydantic los serializa
+// asi). Tiparlos como number obligaria a Number() en el render, que es
+// justo donde un null se convierte en 0 sin que nadie lo note.
+
+// ODT tal como la devuelve la API. Vive acá y no en la pagina que la consume:
+// el resumen la referencia desde el contrato, y duplicarla en dos archivos es
+// la forma corta de que un dia una diga una cosa y la otra otra.
+export interface Viaje {
+  id: number
+  numero_odt: string
+  vehiculo_id: number
+  conductor_id: number
+  origen: string
+  destino: string
+  origen_municipio_id?: number | null
+  destino_municipio_id?: number | null
+  fecha_salida: string
+  estado: string
+  // FASE A2 — inputs manuales de la ODT
+  tipo_viaje: string
+  empresa_manifiesto_id?: number | null
+  empresa_manifiesto?: string | null
+  fecha_manifiesto?: string | null
+  valor_flete_manifiesto: string | null
+  retefuente_porcentaje?: string | null
+  reteica_porcentaje?: string | null
+  otras_deducciones?: string | null
+  anticipo_manifiesto?: string | null
+  porcentaje_comision?: string | null
+  // FASE A2 — calculados por el servidor (solo lectura)
+  flete_neto: string | null
+  retefuente_valor?: string | null
+  reteica_valor?: string | null
+  comision_conductor?: string | null
+  saldo_flete_esperado?: string | null
+  gastos_totales_viaje?: string | null
+  utilidad_neta_odt?: string | null
+  // FASE ODT — inputs del form (existen en modelo/schema; UI añadida)
+  num_manifiesto?: string | null
+  tipo_carga?: string | null
+  peso_declarado_ton?: string | null
+  peso_bascula_origen?: string | null
+  peso_bascula_destino?: string | null
+  km_inicial?: string | null
+  km_final?: string | null
+  km_recorridos?: string | null
+  fecha_llegada?: string | null
+}
+
+export interface GastoResumenItem {
+  id: number
+  categoria: string
+  descripcion: string | null
+  fecha_gasto: string
+  valor_total: string
+  responsable_pago: string
+  asumido_por: string
+  estado_pago: string
+}
+
+export interface IngresoResumenItem {
+  id: number
+  tipo_ingreso: string
+  descripcion: string | null
+  fecha_ingreso: string
+  valor: string
+  estado_pago: string
+}
+
+export interface PeajeResumenItem {
+  id: number
+  num_transaccion_flypass: string
+  nombre_peaje: string | null
+  ciudad_peaje: string | null
+  fecha_transaccion: string
+  valor: string
+  /** Derivado en el servidor: peaje sin gasto cruzado sigue sin legalizar. */
+  legalizado: boolean
+}
+
+export interface ResumenGastos {
+  items: GastoResumenItem[]
+  total: number
+  truncado: boolean
+}
+
+export interface ResumenIngresos {
+  items: IngresoResumenItem[]
+  total: number
+  truncado: boolean
+}
+
+export interface ResumenPeajes {
+  items: PeajeResumenItem[]
+  total: number
+  truncado: boolean
+}
+
+export interface ViajeResumen {
+  viaje_id: number
+  numero_odt: string
+  /** false = algun snapshot nunca fue calculado. El backend NO rellena con 0. */
+  snapshots_completos: boolean
+  /** null cuando falta retefuente_valor o reteica_valor. */
+  total_deducibles: string | null
+  viaje: Viaje
+  gastos: ResumenGastos
+  ingresos: ResumenIngresos
+  peajes: ResumenPeajes
+  bloqueos: string[]
   informativos: string[]
 }
 
