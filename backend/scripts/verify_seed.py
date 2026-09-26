@@ -346,7 +346,27 @@ def main() -> int:
     if errores:
         for error in errores:
             print(f"[ERR] {error}", file=sys.stderr)
-        print("[VERIFY SEED ERROR] baseline inesperado; no se ejecutó el seed")
+        # El mensaje importa: este script compara contra conteos ABSOLUTOS de una
+        # base recien sembrada, asi que cualquier desviacion significa "esta base
+        # no cumple el supuesto", no "el seed esta roto". Sin esta frase, las 8
+        # lineas de [ERR] se leen como un fallo del seed y se pierde tiempo
+        # buscando un bug que no esta.
+        print(
+            "\n[VERIFY SEED] Que significa esto:\n"
+            "  Este verificador solo es valido sobre una base RECIEN SEMBRADA.\n"
+            "  Compara conteos absolutos contra los del seed, asi que sobre una base\n"
+            "  de desarrollo con datos de uso SIEMPRE falla, y ese fallo no dice\n"
+            "  nada sobre el seed.\n"
+            "\n  Que hacer:\n"
+            "    - Si querias verificar el seed: levantar una base vacia y correrlo\n"
+            "      ahi. docker compose down -v && docker compose up -d db\n"
+            "    - Si solo querias el estado de esta base: no es la herramienta.\n"
+            "      Lee los conteos directo, o usa las suites (que si son delta).\n"
+            "\n  Este script NO modifico nada: fallo antes de ejecutar el seed.\n"
+            "\n[VERIFY SEED ERROR] base fuera del supuesto de recien sembrada; "
+            "no se ejecuto el seed",
+            file=sys.stderr,
+        )
         return 1
 
     if bootstrap_email:
