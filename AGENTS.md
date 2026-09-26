@@ -46,6 +46,12 @@ pregunta. `docs/02-domain/GLOSSARY.md` separa lo confirmado de lo desconocido.
 
 `.opencode/agents/` — 8 agentes especializados. `.opencode/skills/` — 12 skills de procedimiento.
 
+**Estos archivos son parte del repo y hay que mantenerlos.** Un clon los trae; si el
+flujo de trabajo cambia, se actualizan **en el mismo commit que el cambio**. Versionados
+pero sin mantenimiento se convierten en una fuente de verdad parcial: 20 archivos que
+prometen cosas que ya no son ciertas — el mismo patrón que `verify_seed`, que existía y
+nadie llamaba.
+
 **Ruta por territorio:** auth/permisos/secretos → `security` + `backend`. Esquema/migraciones/
 datos → `database`. React/UI/PWA → `frontend`. Cómo se ve y qué ve el usuario al fallar →
 `ux`. Gates/suites/regresión → `qa`. Decisiones previas a implementar → `planner`.
