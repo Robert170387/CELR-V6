@@ -2,6 +2,114 @@
 
 CELR v6 — Colombian heavy-truck fleet management app ("gestión de flota de carga pesada"). Monorepo: `backend/` (FastAPI + SQLAlchemy + PostgreSQL), `frontend/` (React 18 + Vite + TS + PWA), `scripts/` (E2E test), deployed to Render.
 
+## Fuente de verdad
+
+> **El repositorio es la fuente de verdad. La conversación no lo es.**
+
+- **`docs/00-context/CURRENT.md` es lo primero que se lee.** Dónde estamos, qué está
+  bloqueado, cuál es el próximo paso autorizado. Si está más viejo que el último commit,
+  verificalo contra `git log` y no confíes en él.
+- **`docs/README.md` es el índice.** Mapa de las carpetas, orden de lectura para un agente nuevo,
+  y estado de cada documento de la raíz. Cada afirmación se clasifica **FACT / DECISION /
+  PROPOSAL / ASSUMPTION / UNKNOWN** (ver abajo).
+- **`docs/07-consulting/DECISIONS-PENDING.md` es la fuente de las decisiones abiertas.** D1–D8
+  con el estado verificado de cada una contra el código. **Nada de lo que está ahí está
+  aprobado.**
+- `docs/` es la memoria persistente. `INSTRUCCIONES_OPENCODE.md` tiene las reglas operativas
+  (gates §3, trampas §4, estado §5, decisiones abiertas §8).
+- **Antes de afirmar que algo "no existe", buscá en el código.** La documentación histórica de
+  este repo miente sobre ausencias: `AUDITORIA_CELR_v6.md` afirma que no hay recuperación de
+  contraseña. **Sí hay** — lleva 97 commits desfasada. Los documentos vencidos llevan banner ⛔
+  en la raíz; no los uses como estado.
+- `SESSION-HANDOFF.md` (raíz) es el estado de salida de la sesión anterior.
+
+## Clasificación del conocimiento
+
+Toda afirmación nueva se etiqueta. Sin etiqueta, se asume no verificada.
+
+| Etiqueta | Significado |
+|---|---|
+| **FACT** | Verificado contra código, BD o comando. Cita `archivo:línea`. |
+| **DECISION** | La eligió el usuario. Vive en un ADR de `docs/04-decisions/`. |
+| **PROPOSAL** | Sugerencia de un agente o consultor. **No es una decisión.** |
+| **ASSUMPTION** | Se cree cierto pero no verificado. |
+| **UNKNOWN** | No se puede determinar. **Se marca, nunca se inventa.** |
+
+> **Una recomendación de un agente NO se convierte automáticamente en decisión.** PROPOSAL
+> pasa a DECISION solo con aprobación del usuario **y** un ADR. Sin ambas dos, queda en
+> `docs/05-tasks/BACKLOG.md` marcado como PROPOSAL.
+
+**Nunca inventar una regla de negocio.** Si el repositorio no la dice, es `UNKNOWN` y se
+pregunta. `docs/02-domain/GLOSSARY.md` separa lo confirmado de lo desconocido.
+
+## Agentes y skills
+
+`.opencode/agents/` — 8 agentes especializados. `.opencode/skills/` — 12 skills de procedimiento.
+
+**Ruta por territorio:** auth/permisos/secretos → `security` + `backend`. Esquema/migraciones/
+datos → `database`. React/UI/PWA → `frontend`. Cómo se ve y qué ve el usuario al fallar →
+`ux`. Gates/suites/regresión → `qa`. Decisiones previas a implementar → `planner`.
+
+Cada skill enseña un **procedimiento**, no repite la arquitectura. El agente carga la que
+corresponde en vez de llevar todo en el prompt.
+
+## Protocolo de trabajo por feature
+
+```
+Petición → Especificación → Revisión de arquitectura → ADR → Planificación
+  → Implementación → QA → Revisión de seguridad → Revisión UX → Regresión
+  → CURRENT.md → Commit
+```
+
+**No se salta arquitectura ni documentación** cuando la feature cambia **dominio,
+persistencia o seguridad**. Solo-UI o solo-texto puede condensar; el ADR no se negocia.
+
+Procedimiento completo y anti-patrones: skill `celr-workflow`.
+
+## Las cuatro normas
+
+No son consejos: cada una costó un incidente. Detalle y evidencia en
+`docs/06-quality/GATES.md` e `INSTRUCCIONES_OPENCODE.md` §4.
+
+1. **Fallo silencioso prohibido.** Todo `catch` registra **e** informa. Nunca cerrar un camino de
+   error sin rastro visible. La subclase peligrosa: el **403 descartado en la UI** — el
+   endpoint se comportó bien, la presentación lo tira, y **ningún test de endpoint lo ve**.
+2. **Campo o función sin consumidor, prohibido.** Todo campo tiene lector, toda función un
+   caller, todo `setX` una UI que lo lea. Si es "reservado para fase X", se marca en el código.
+   Un valor escrito y nunca leído es **seguridad decorativa**.
+3. **Baseline absoluto en app DB, prohibido.** Ningún test afirma `usuarios=7` ni
+   `ConductorModel.id == 2`. Miden delta, filtran por sus filas, o construyen un escenario
+   controlado y lo restauran.
+4. **Trampa del service worker.** Antes de concluir que un fix de frontend no surtió efecto:
+   `Ctrl+Shift+R` o desregistrar el SW. Ya mordió dos veces.
+
+## Obligación de pruebas
+
+**4 gates:** 21 suites + humo + E2E + `npm.cmd run build` (incluye `tsc -b`).
+Comandos exactos: `INSTRUCCIONES_OPENCODE.md` §3. Resumen accionable: `docs/06-quality/GATES.md`.
+
+- **El conteo se verifica contra el disco**, no contra la documentación:
+  `(Get-ChildItem backend\scripts\test_*.py).Count` → **21**.
+- En Windows: `npm.cmd`, y `$env:PYTHONIOENCODING="utf-8"` bajo pipe (cp1252 rompe `✓`/`✗`).
+- **Nunca relajar un assert para que el gate pase.** Arreglá el test o reportá el problema.
+  Un gate verde con un assert que no prueba lo que dice es **peor que uno rojo**.
+- **Nunca borrar filas de `auditoria_evento`** para cuadrar un gate. Es append-only.
+- **UI: verificar por render, y el camino de ERROR primero.** El feliz ya funciona y el ojo lo
+  detecta; el de error funciona hasta que alguien lo prueba. En `GestionUsuarios.tsx` hubo 4
+  bugs invisibles a toda prueba de endpoint.
+
+## Obligación de revisión del diff
+
+- `git diff --check` limpio **y** el diff **leído**, no solo el exit code.
+- Actualizar la documentación afectada **en el mismo commit**: ADR si hubo decisión,
+  `CURRENT.md` si cambió el estado, `GLOSSARY.md` si cambió el dominio.
+- Un commit por sub-fase. Mensaje en español, preparado con la herramienta de escritura —
+  **nunca** `git commit -F` con redirección de PowerShell (corrompe acentos y mete BOM).
+- Backup: `git rev-list --left-right --count origin/fase-a2-fase-2-local...main` → `0 0`.
+- **Nunca** `git push` sin que lo pidan.
+- Si algo no se pudo hacer, **decir cuál y por qué**. Un "OK las 3" cuando solo se hicieron 2
+  es el peor resultado posible.
+
 ## Language convention
 
 The entire codebase is in **Spanish**: identifiers, comments, API JSON fields, error messages, migration messages, seed/test credentials. Write new code in Spanish to match (e.g. `valor_total`, `numero_odt`, `hash_comprobante`).

@@ -1,5 +1,18 @@
 # CELR v6 — Documento de entrega para Deepseek (nuevo consultor)
 
+> ## ⛔ OBSOLETO como brief — 2026-09-23. Reemplazado por `docs/07-consulting/DEEPSEEK-BRIEF.md`.
+>
+> Snapshot anterior al Módulo de Usuarios y a las fases de ODT/Gastos/Liquidaciones/B2/Flypass.
+> Sirve como **histórico de la relación consultor↔proyecto** y para entender decisiones pasadas,
+> pero **no** como brief vigente: no conoce `password_version`, la recuperación de contraseña, la
+> auditoría de eventos sensibles, el enforcement del primer login ni el CRUD de usuarios.
+>
+> Relación de roles que sí sigue vigente: **DeepSeek es CONSULTOR.** Propone y argumenta;
+> no tiene autoridad sobre el código. Ninguna propuesta suya se convierte en decisión sin
+> ADR en `docs/04-decisions/`.
+>
+> Brief vigente: `docs/07-consulting/DEEPSEEK-BRIEF.md`.
+
 > **Para qué es este documento:** brief de **traspaso del proyecto** desde un consultor
 > (Claude) hacia **Deepseek**, que tomará el control de la programación de ahora en adelante.
 > Está **verificado con evidencia hoy** (2026-09-23). No dependas de conversaciones anteriores:

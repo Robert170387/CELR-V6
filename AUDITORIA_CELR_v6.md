@@ -1,5 +1,22 @@
 # Auditoría Técnica — CELR v6 "TRUCK DRIVER" (2026-09)
 
+> ## ⛔ HISTÓRICO — DESCRIBE EL ESTADO EN `b802d82`, NO EL ESTADO ACTUAL
+>
+> **Fecha del análisis:** 2026-09-22 · **Base:** commit `b802d82` (97 commits atrás) · **Actual:** `git log --oneline -1`
+>
+> Los hallazgos S1–S4 **fueron remediados después**. Acting sobre ellos reintroduce trabajo
+> ya hecho. Estado verificado contra el código:
+>
+> | Hallazgo | Decía | Estado actual (verificado) |
+> |---|---|---|
+> | **S1** | `debe_cambiar_contrasena` se valida SOLO en el frontend | **RESUELTO.** `deps.py:exigir_contrasena_actualizada` + `PROTEGIDOS` sobre 8 routers (`api.py:15-27`). 403 con header `X-CELR-Requiere-Cambio`. El router `auth` está exento **a propósito**: el flujo forzado necesita `/auth/me` y `/auth/cambio-contrasena`. |
+> | **S2** | Falta `password_version` en el token | **RESUELTO.** Campo en `flota.py:74`, viaja en el JWT, `deps.py:52` lo compara contra el valor actual. Cambiar la contraseña invalida los access tokens al instante. |
+> | **S3** | Recuperación de contraseña NO IMPLEMENTADA | **RESUELTO.** `POST /auth/forgot-password`, `/auth/reset-password`, `/auth/reset-codigo`, `/auth/cambio-contrasena`, más `/usuarios/{id}/reset-password` y `/reset-codigo`. Servicio `app/services/password_reset.py`. UI en `frontend/src/pages/{Recuperar,ResetPassword,ResetCodigo}.tsx`. |
+> | **S4** | Rate limit in-memory y solo en login | **PARCIAL (abierta, = B4).** Ahora cubre login, `forgot-password` y `reset-codigo`. Sigue in-memory (`app/core/rate_limiter.py`) y **no** limita `/auth/refresh` ni `/auth/cambio-contrasena`. Ver `INSTRUCCIONES_OPENCODE.md` §4. |
+>
+> El texto original se conserva sin modificar, para trazabilidad. **No lo uses como estado
+> vigente.** Estado actual: `docs/00-context/CURRENT.md` e `INSTRUCCIONES_OPENCODE.md` §4–§5.
+
 > Documento de auditoría de nivel senior. **Reglas respetadas:** sin modificación de código, sin refactors,
 > sin cambios de DB/Docker/endpoints, sin instalación de paquetes. Solo lectura + verificación contra el código real.
 > Todo hallazgo cita archivo y línea. Lo que no se pudo verificar de forma concluyente se marca **NO VERIFICADO**;
